@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SaveMe - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>SaveMe Settings</h1>
+      <p class="subtitle">Configure your OneDrive connection to save images</p>
+    </header>
+
+    <main>
+      <!-- Connection Section -->
+      <section class="card" id="connection-section">
+        <h2>OneDrive Connection</h2>
+
+        <div id="not-connected" class="status-block">
+          <div class="status-indicator disconnected">
+            <span class="dot"></span>
+            <span>Not connected</span>
+          </div>
+          <p>Connect your Microsoft account to start saving images to OneDrive.</p>
+          <button id="connect-btn" class="btn primary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+            </svg>
+            Connect to OneDrive
+          </button>
+        </div>
+
+        <div id="connected" class="status-block hidden">
+          <div class="status-indicator connected">
+            <span class="dot"></span>
+            <span>Connected</span>
+          </div>
+          <div class="user-info">
+            <span class="user-name" id="user-name"></span>
+            <span class="user-email" id="user-email"></span>
+          </div>
+          <button id="disconnect-btn" class="btn secondary">Disconnect</button>
+        </div>
+      </section>
+
+      <!-- Folder Selection Section -->
+      <section class="card" id="folder-section">
+        <h2>Save Location</h2>
+        <p>Select the OneDrive folder where images will be saved.</p>
+
+        <div id="folder-not-selected" class="folder-status">
+          <span class="warning">No folder selected</span>
+          <button id="select-folder-btn" class="btn primary">Select Folder</button>
+        </div>
+
+        <div id="folder-selected" class="folder-status hidden">
+          <span class="folder-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>
+          </span>
+          <span id="selected-folder-name">Root</span>
+          <button id="change-folder-btn" class="btn text">Change</button>
+        </div>
+
+        <div id="folder-picker" class="folder-picker hidden">
+          <div class="folder-breadcrumb" id="breadcrumb">
+            <button class="breadcrumb-item" data-id="root">OneDrive</button>
+          </div>
+          <div class="folder-list" id="folder-list">
+            <div class="loading">Loading folders...</div>
+          </div>
+          <div class="folder-actions">
+            <button id="select-current-btn" class="btn primary">Select This Folder</button>
+            <button id="cancel-picker-btn" class="btn secondary">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Notification Settings Section -->
+      <section class="card" id="notification-section">
+        <h2>Notifications</h2>
+        <p>Configure how you want to be notified when images are saved.</p>
+
+        <div class="setting-row">
+          <label class="toggle-label">
+            <span>Show notifications</span>
+            <input type="checkbox" id="notifications-enabled" checked>
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+
+        <div id="notification-options" class="sub-settings">
+          <div class="setting-row">
+            <label class="radio-label">
+              <input type="radio" name="notification-mode" value="all" checked>
+              <span>Show all notifications</span>
+            </label>
+            <p class="setting-hint">Shows progress updates while saving</p>
+          </div>
+          <div class="setting-row">
+            <label class="radio-label">
+              <input type="radio" name="notification-mode" value="result">
+              <span>Show only result</span>
+            </label>
+            <p class="setting-hint">Shows only success or error notification</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Status Messages -->
+      <div id="status-message" class="status-message hidden"></div>
+    </main>
+
+    <footer>
+      <p>SaveMe v1.0.0</p>
+      <p class="hint">Right-click any image and select "SaveMe" to save it to your OneDrive</p>
+    </footer>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

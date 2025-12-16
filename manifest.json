@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "SaveMe",
+  "version": "1.0.0",
+  "description": "Right-click any image to save it directly to your OneDrive folder",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "notifications",
+    "identity"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "oauth2": {
+    "client_id": "3c4f5810-e946-401d-966a-d17355cfa869",
+    "scopes": [
+      "https://graph.microsoft.com/Files.ReadWrite",
+      "https://graph.microsoft.com/User.Read",
+      "offline_access"
+    ]
+  }
+}
