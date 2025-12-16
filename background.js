@@ -14,6 +14,9 @@ import { addImageMetadata } from './lib/image-metadata.js';
 
 // Constants
 const CONTEXT_MENU_ID = 'saveme-image';
+const HASH_RETENTION_DAYS = 90; // Keep hashes for 3 months
+const HASH_CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // Clean up once per day
+const MAX_STORED_HASHES = 10000; // Maximum hashes to store (safety limit)
 
 /**
  * Create the context menu on extension install and open settings
@@ -83,6 +86,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Fetch the image
     const { blob, mimeType, extension } = await fetchImage(imageUrl);
 
+    // Calculate hash to check for duplicates
+    const imageHash = await calculateImageHash(blob);
+
+    // Check if this image was already saved
+    const isDuplicate = await checkDuplicate(imageHash);
+    if (isDuplicate) {
+      if (notifSettings.enabled) {
+        showNotification(
+          'Duplicate',
+          'This image was already saved recently',
+          'info'
+        );
+      }
+      return;
+    }
+
     // Generate filename and timestamp
     const saveDate = new Date();
     const filename = generateFilename(imageUrl, extension, saveDate);
@@ -97,6 +116,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     // Upload to OneDrive
     await uploadFile(blobWithMetadata, filename, folder.id);
+
+    // Store hash after successful upload
+    await storeImageHash(imageHash, imageUrl);
 
     // Success notification (show if notifications enabled)
     if (notifSettings.enabled) {
@@ -303,3 +325,115 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 });
+
+// ==================== Duplicate Detection ====================
+
+/**
+ * Calculate SHA-256 hash of image blob
+ */
+async function calculateImageHash(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Check if image hash already exists (is a duplicate)
+ */
+async function checkDuplicate(hash) {
+  const result = await chrome.storage.local.get('imageHashes');
+  const hashes = result.imageHashes || {};
+  return hash in hashes;
+}
+
+/**
+ * Store image hash with timestamp
+ */
+async function storeImageHash(hash, url) {
+  const result = await chrome.storage.local.get('imageHashes');
+  const hashes = result.imageHashes || {};
+
+  hashes[hash] = {
+    timestamp: Date.now(),
+    url: url.substring(0, 200) // Store truncated URL for reference
+  };
+
+  await chrome.storage.local.set({ imageHashes: hashes });
+
+  // Trigger cleanup of old hashes
+  await cleanupOldHashes();
+}
+
+/**
+ * Remove hashes older than retention period and enforce max limit
+ */
+async function cleanupOldHashes(forceCleanup = false) {
+  const result = await chrome.storage.local.get(['imageHashes', 'lastHashCleanup']);
+  const hashes = result.imageHashes || {};
+  const lastCleanup = result.lastHashCleanup || 0;
+
+  // Only cleanup once per day (unless forced)
+  if (!forceCleanup && Date.now() - lastCleanup < HASH_CLEANUP_INTERVAL) {
+    return;
+  }
+
+  const cutoffTime = Date.now() - (HASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  let cleanedCount = 0;
+
+  // Remove expired hashes
+  for (const hash in hashes) {
+    if (hashes[hash].timestamp < cutoffTime) {
+      delete hashes[hash];
+      cleanedCount++;
+    }
+  }
+
+  // Enforce maximum limit - remove oldest if over limit
+  const hashCount = Object.keys(hashes).length;
+  if (hashCount > MAX_STORED_HASHES) {
+    // Sort by timestamp and remove oldest
+    const sortedHashes = Object.entries(hashes)
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+    const toRemove = hashCount - MAX_STORED_HASHES;
+    for (let i = 0; i < toRemove; i++) {
+      delete hashes[sortedHashes[i][0]];
+      cleanedCount++;
+    }
+    console.log(`SaveMe: Removed ${toRemove} oldest hashes (limit: ${MAX_STORED_HASHES})`);
+  }
+
+  await chrome.storage.local.set({
+    imageHashes: hashes,
+    lastHashCleanup: Date.now()
+  });
+
+  if (cleanedCount > 0) {
+    console.log(`SaveMe: Cleaned up ${cleanedCount} old image hashes`);
+  }
+}
+
+/**
+ * Get hash statistics (for debugging/options page)
+ */
+async function getHashStats() {
+  const result = await chrome.storage.local.get('imageHashes');
+  const hashes = result.imageHashes || {};
+  const count = Object.keys(hashes).length;
+
+  let oldestTimestamp = Date.now();
+  let newestTimestamp = 0;
+
+  for (const hash in hashes) {
+    const ts = hashes[hash].timestamp;
+    if (ts < oldestTimestamp) oldestTimestamp = ts;
+    if (ts > newestTimestamp) newestTimestamp = ts;
+  }
+
+  return {
+    count,
+    oldestDate: count > 0 ? new Date(oldestTimestamp).toISOString() : null,
+    newestDate: count > 0 ? new Date(newestTimestamp).toISOString() : null
+  };
+}
