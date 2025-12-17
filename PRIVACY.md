@@ -1,6 +1,6 @@
 # Privacy Policy for SaveMe Chrome Extension
 
-**Last updated:** December 2024
+**Last updated:** December 2025
 
 ## Overview
 
@@ -37,12 +37,12 @@ No data is ever sent to the extension developer or any other third party.
 
 ## Permissions Explained
 
-| Permission | Why It's Needed |
-|------------|-----------------|
-| `contextMenus` | To add "SaveMe" to the right-click menu |
-| `storage` | To save your settings and authentication tokens locally |
-| `notifications` | To show save confirmations and errors |
-| `identity` | To authenticate with Microsoft OneDrive via OAuth |
+| Permission                     | Why It's Needed                                             |
+| ------------------------------ | ----------------------------------------------------------- |
+| `contextMenus`                 | To add "SaveMe" to the right-click menu                     |
+| `storage`                      | To save your settings and authentication tokens locally     |
+| `notifications`                | To show save confirmations and errors                       |
+| `identity`                     | To authenticate with Microsoft OneDrive via OAuth           |
 | `host_permissions: <all_urls>` | To download images from any website you choose to save from |
 
 ## Data Security
@@ -55,6 +55,7 @@ No data is ever sent to the extension developer or any other third party.
 ## Your Rights
 
 You can:
+
 - **Disconnect** your OneDrive account at any time via the extension settings
 - **Clear all data** by removing the extension from Chrome
 - **View stored data** via Chrome's developer tools (Application → Storage)
