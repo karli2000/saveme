@@ -7,7 +7,9 @@ import {
   isAuthenticated,
   getSelectedFolder,
   uploadFile,
-  getValidAccessToken
+  getValidAccessToken,
+  refreshAccessToken,
+  getTokens
 } from './lib/onedrive-api.js';
 
 import { addImageMetadata } from './lib/image-metadata.js';
@@ -33,7 +35,47 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     chrome.runtime.openOptionsPage();
   }
+
+  // Set up periodic token refresh alarm (daily to be safe)
+  chrome.alarms.create('refreshToken', {
+    delayInMinutes: 5, // First run in 5 minutes
+    periodInMinutes: 60 * 24 // Then daily
+  });
 });
+
+/**
+ * Refresh token on browser startup
+ */
+chrome.runtime.onStartup.addListener(async () => {
+  // Small delay to let things initialize
+  setTimeout(() => proactiveTokenRefresh(), 10000);
+});
+
+/**
+ * Handle alarms for background tasks
+ */
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'refreshToken') {
+    await proactiveTokenRefresh();
+  }
+});
+
+/**
+ * Proactively refresh token to prevent expiration
+ * Microsoft refresh tokens last 90 days if unused, refreshing extends them
+ */
+async function proactiveTokenRefresh() {
+  try {
+    const tokens = await getTokens();
+    if (tokens?.refreshToken) {
+      await refreshAccessToken();
+      console.log('SaveMe: Token refreshed proactively');
+    }
+  } catch (error) {
+    // Don't show notification for background refresh failures
+    console.warn('SaveMe: Proactive token refresh failed:', error.message);
+  }
+}
 
 /**
  * Handle context menu click

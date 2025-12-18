@@ -43,6 +43,7 @@ No data is ever sent to the extension developer or any other third party.
 | `storage`                      | To save your settings and authentication tokens locally     |
 | `notifications`                | To show save confirmations and errors                       |
 | `identity`                     | To authenticate with Microsoft OneDrive via OAuth           |
+| `alarms`                       | To periodically refresh authentication tokens in background |
 | `host_permissions: <all_urls>` | To download images from any website you choose to save from |
 
 ## Data Security
