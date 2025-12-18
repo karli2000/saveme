@@ -175,9 +175,11 @@ async function storeTokens(tokens) {
   const tokenData = {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
-    expiresAt: Date.now() + (tokens.expires_in * 1000)
+    expiresAt: Date.now() + (tokens.expires_in * 1000),
+    lastRefresh: Date.now()
   };
   await chrome.storage.local.set({ tokens: tokenData });
+  console.log('SaveMe: Tokens stored, expires in', tokens.expires_in, 'seconds');
 }
 
 /**
@@ -223,6 +225,12 @@ export async function refreshAccessToken() {
   }
 
   const newTokens = await response.json();
+
+  // Preserve old refresh token if new one not provided
+  if (!newTokens.refresh_token) {
+    newTokens.refresh_token = tokens.refreshToken;
+  }
+
   await storeTokens(newTokens);
 
   return newTokens.access_token;
