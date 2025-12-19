@@ -3,7 +3,7 @@
  * Handles OAuth 2.0 authentication and file operations via Microsoft Graph API
  */
 
-const TENANT = 'consumers'; // For personal Microsoft accounts
+const TENANT = 'common'; // Supports both personal and work/school accounts
 const AUTH_URL = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize`;
 const TOKEN_URL = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
 const GRAPH_URL = 'https://graph.microsoft.com/v1.0';
@@ -162,8 +162,20 @@ async function exchangeCodeForTokens(code, codeVerifier) {
 
   const tokens = await response.json();
 
+  console.log('SaveMe: Initial auth successful', {
+    hasAccessToken: !!tokens.access_token,
+    hasRefreshToken: !!tokens.refresh_token,
+    refreshTokenLength: tokens.refresh_token?.length,
+    expiresIn: tokens.expires_in
+  });
+
+  // Verify we got a refresh token
+  if (!tokens.refresh_token) {
+    console.error('SaveMe: WARNING - No refresh token received from initial auth!');
+  }
+
   // Store tokens
-  await storeTokens(tokens);
+  await storeTokens(tokens, false);
 
   return tokens;
 }
@@ -171,15 +183,32 @@ async function exchangeCodeForTokens(code, codeVerifier) {
 /**
  * Store tokens securely in chrome.storage.local
  */
-async function storeTokens(tokens) {
+async function storeTokens(tokens, isRefresh = false) {
+  // Get existing tokens to preserve refresh token if needed
+  const existing = await getTokens();
+
   const tokenData = {
     accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
+    refreshToken: tokens.refresh_token || existing?.refreshToken,
     expiresAt: Date.now() + (tokens.expires_in * 1000),
-    lastRefresh: Date.now()
+    lastRefresh: Date.now(),
+    refreshCount: (existing?.refreshCount || 0) + (isRefresh ? 1 : 0),
+    originalAuth: existing?.originalAuth || Date.now()
   };
+
+  // Verify we have a refresh token before saving
+  if (!tokenData.refreshToken) {
+    console.error('SaveMe: WARNING - No refresh token to store!');
+  }
+
   await chrome.storage.local.set({ tokens: tokenData });
-  console.log('SaveMe: Tokens stored, expires in', tokens.expires_in, 'seconds');
+  console.log('SaveMe: Tokens stored', {
+    hasRefreshToken: !!tokenData.refreshToken,
+    refreshTokenLength: tokenData.refreshToken?.length,
+    expiresIn: tokens.expires_in,
+    refreshCount: tokenData.refreshCount,
+    isRefresh
+  });
 }
 
 /**
@@ -196,8 +225,15 @@ export async function getTokens() {
 export async function refreshAccessToken() {
   const tokens = await getTokens();
   if (!tokens?.refreshToken) {
+    console.error('SaveMe: No refresh token found in storage');
     throw new Error('No refresh token available');
   }
+
+  console.log('SaveMe: Attempting token refresh...', {
+    refreshTokenLength: tokens.refreshToken?.length,
+    lastRefresh: new Date(tokens.lastRefresh).toISOString(),
+    refreshCount: tokens.refreshCount
+  });
 
   const clientId = await getClientId();
 
@@ -216,6 +252,11 @@ export async function refreshAccessToken() {
 
   if (!response.ok) {
     const error = await response.json();
+    console.error('SaveMe: Token refresh failed', {
+      error: error.error,
+      description: error.error_description,
+      timestamp: new Date().toISOString()
+    });
     // If refresh token is invalid, clear tokens
     if (error.error === 'invalid_grant') {
       await clearTokens();
@@ -226,12 +267,19 @@ export async function refreshAccessToken() {
 
   const newTokens = await response.json();
 
+  console.log('SaveMe: Token refresh successful', {
+    gotNewRefreshToken: !!newTokens.refresh_token,
+    newRefreshTokenLength: newTokens.refresh_token?.length,
+    accessTokenExpiresIn: newTokens.expires_in
+  });
+
   // Preserve old refresh token if new one not provided
   if (!newTokens.refresh_token) {
+    console.log('SaveMe: No new refresh token received, preserving existing');
     newTokens.refresh_token = tokens.refreshToken;
   }
 
-  await storeTokens(newTokens);
+  await storeTokens(newTokens, true);
 
   return newTokens.access_token;
 }
@@ -246,10 +294,21 @@ export async function getValidAccessToken() {
     throw new Error('Not authenticated. Please connect to OneDrive in settings.');
   }
 
+  const now = Date.now();
+  const expiresIn = Math.round((tokens.expiresAt - now) / 1000);
+
   // Check if token is expired or will expire in the next minute
-  if (tokens.expiresAt < Date.now() + 60000) {
+  if (tokens.expiresAt < now + 60000) {
+    console.log('SaveMe: Access token expired or expiring soon, refreshing...', {
+      expiredSecondsAgo: -expiresIn
+    });
     return await refreshAccessToken();
   }
+
+  console.log('SaveMe: Using existing access token', {
+    expiresInSeconds: expiresIn,
+    expiresInMinutes: Math.round(expiresIn / 60)
+  });
 
   return tokens.accessToken;
 }
@@ -262,11 +321,12 @@ export async function clearTokens() {
 }
 
 /**
- * Check if user is authenticated
+ * Check if user is authenticated (has valid tokens)
  */
 export async function isAuthenticated() {
   const tokens = await getTokens();
-  return !!tokens?.accessToken;
+  // Must have both access token AND refresh token
+  return !!tokens?.accessToken && !!tokens?.refreshToken;
 }
 
 /**
@@ -388,4 +448,43 @@ export async function saveSelectedFolder(folderId, folderName) {
 export async function getSelectedFolder() {
   const result = await chrome.storage.sync.get('selectedFolder');
   return result.selectedFolder;
+}
+
+/**
+ * Diagnostic function to check token status
+ * Call from console: (await import('./lib/onedrive-api.js')).diagnoseTokens()
+ */
+export async function diagnoseTokens() {
+  const tokens = await getTokens();
+  const now = Date.now();
+
+  if (!tokens) {
+    return { status: 'NOT_AUTHENTICATED', message: 'No tokens found' };
+  }
+
+  const diagnosis = {
+    status: 'OK',
+    hasAccessToken: !!tokens.accessToken,
+    hasRefreshToken: !!tokens.refreshToken,
+    refreshTokenLength: tokens.refreshToken?.length || 0,
+    accessTokenExpired: tokens.expiresAt < now,
+    accessTokenExpiresIn: Math.round((tokens.expiresAt - now) / 1000 / 60) + ' minutes',
+    lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never',
+    timeSinceLastRefresh: tokens.lastRefresh
+      ? Math.round((now - tokens.lastRefresh) / 1000 / 60 / 60) + ' hours ago'
+      : 'unknown',
+    originalAuth: tokens.originalAuth ? new Date(tokens.originalAuth).toISOString() : 'unknown',
+    refreshCount: tokens.refreshCount || 0
+  };
+
+  if (!tokens.refreshToken) {
+    diagnosis.status = 'ERROR';
+    diagnosis.message = 'No refresh token - will expire soon!';
+  } else if (tokens.refreshToken.length < 100) {
+    diagnosis.status = 'WARNING';
+    diagnosis.message = 'Refresh token seems too short';
+  }
+
+  console.log('SaveMe Token Diagnosis:', diagnosis);
+  return diagnosis;
 }
