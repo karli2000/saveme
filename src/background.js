@@ -178,6 +178,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (notifSettings.enabled) {
       showNotification('Error', error.message, 'error');
     }
+    // Open options page if re-authentication is required
+    if (error.requiresReauth) {
+      openOptionsPage();
+    }
   }
 });
 

@@ -257,10 +257,12 @@ export async function refreshAccessToken() {
       description: error.error_description,
       timestamp: new Date().toISOString()
     });
-    // If refresh token is invalid, clear tokens
+    // If refresh token is invalid, clear tokens and signal re-auth needed
     if (error.error === 'invalid_grant') {
       await clearTokens();
-      throw new Error('Session expired. Please reconnect to OneDrive.');
+      const authError = new Error('Session expired. Please reconnect to OneDrive.');
+      authError.requiresReauth = true;
+      throw authError;
     }
     throw new Error(error.error_description || 'Failed to refresh token');
   }
