@@ -36,10 +36,10 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.runtime.openOptionsPage();
   }
 
-  // Set up periodic token refresh alarm (daily to be safe)
+  // Set up periodic token refresh alarm (every 3 hours)
   chrome.alarms.create('refreshToken', {
     delayInMinutes: 5, // First run in 5 minutes
-    periodInMinutes: 60 * 24 // Then daily
+    periodInMinutes: 60 * 3 // Then every 3 hours
   });
 });
 
