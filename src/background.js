@@ -24,11 +24,13 @@ const MAX_STORED_HASHES = 10000; // Maximum hashes to store (safety limit)
  * Create the context menu on extension install and open settings
  */
 chrome.runtime.onInstalled.addListener((details) => {
-  // Create context menu
-  chrome.contextMenus.create({
-    id: CONTEXT_MENU_ID,
-    title: 'SaveMe',
-    contexts: ['image']
+  // Remove existing menu items first (prevents duplicate ID error on update)
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_ID,
+      title: 'SaveMe',
+      contexts: ['image']
+    });
   });
 
   // Open settings page on first install
