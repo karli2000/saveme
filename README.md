@@ -2,6 +2,10 @@
 
 A Chrome extension that lets you right-click any image on any website and save it directly to your OneDrive folder. The source URL and datetime are embedded in both the filename and the image metadata.
 
+## Chrome Store
+
+This extension is available in the [Chrome Store](https://chromewebstore.google.com/detail/saveme/gmingjkfncbmgeopofipdemlcjdjdlmg)
+
 ## Features
 
 - **One-click saving** - Right-click any image → "SaveMe" → Done
@@ -15,14 +19,14 @@ A Chrome extension that lets you right-click any image on any website and save i
 
 ## Supported Image Formats
 
-| Format | Metadata Support |
-|--------|------------------|
-| JPEG/JPG | EXIF (DateTimeOriginal, ImageDescription, UserComment) |
-| PNG | tEXt chunks (Source, Creation Time, Comment) |
-| WebP | XMP (dc:source, xmp:CreateDate) |
-| GIF | Filename only |
-| SVG | Filename only |
-| BMP/TIFF/ICO | Filename only |
+| Format       | Metadata Support                                       |
+| ------------ | ------------------------------------------------------ |
+| JPEG/JPG     | EXIF (DateTimeOriginal, ImageDescription, UserComment) |
+| PNG          | tEXt chunks (Source, Creation Time, Comment)           |
+| WebP         | XMP (dc:source, xmp:CreateDate)                        |
+| GIF          | Filename only                                          |
+| SVG          | Filename only                                          |
+| BMP/TIFF/ICO | Filename only                                          |
 
 ## Installation
 
@@ -96,10 +100,12 @@ A Chrome extension that lets you right-click any image on any website and save i
 Access settings by clicking the extension icon or right-click → Options.
 
 ### OneDrive Connection
+
 - Connect/disconnect your Microsoft account
 - Select the target folder for saved images
 
 ### Notifications
+
 - **Enable/disable** - Turn notifications on or off
 - **Show all** - See progress updates (downloading, uploading, saved)
 - **Show only result** - See only the final success/error message
@@ -111,6 +117,7 @@ Access settings by clicking the extension icon or right-click → Options.
 ```
 
 **Example:**
+
 ```
 reddit-com_funny-cat_2025-12-16_14-30-45.jpg
 ```
@@ -118,12 +125,14 @@ reddit-com_funny-cat_2025-12-16_14-30-45.jpg
 ## Duplicate Detection
 
 SaveMe remembers images you've saved (using content hashes) for 3 months:
+
 - Same image from different URLs = detected as duplicate
 - Different images from same URL = saved normally
 - Duplicates show a notification and are skipped
 - Hashes are stored locally, never uploaded
 
 **Limits:**
+
 - Maximum 10,000 hashes stored
 - Oldest hashes removed when limit reached
 - Automatic cleanup runs daily
@@ -131,25 +140,31 @@ SaveMe remembers images you've saved (using content hashes) for 3 months:
 ## Troubleshooting
 
 ### "Not Connected" error
+
 - Open settings and click **Connect to OneDrive**
 - Use a personal Microsoft account (not work/school)
 
 ### "No Folder Selected" error
+
 - Open settings and click **Select Folder**
 
 ### "Duplicate" notification
+
 - You've already saved this image within the last 3 months
 
 ### Image fails to save
+
 - Some sites block image downloads (CORS)
 - Try: Right-click → "Open image in new tab" → Then use SaveMe
 
 ### Authentication fails
+
 - Verify Azure Client ID in `manifest.json`
 - Check redirect URI matches: `https://{extension-id}.chromiumapp.org/`
 - Ensure all 3 API permissions are added
 
 ### Metadata not showing
+
 - Some image viewers don't display all metadata fields
 - Use ExifTool or online metadata viewers to verify
 - WebP requires extended format (VP8X) for metadata
