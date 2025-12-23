@@ -1,0 +1,24 @@
+{
+  "name": "saveme",
+  "version": "1.2.0",
+  "type": "module",
+  "description": "A Chrome extension that lets you right-click any image on any website and save it directly to your OneDrive folder. The source URL and datetime are embedded in both the filename and the image metadata.",
+  "scripts": {
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/karli2000/saveme.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/karli2000/saveme/issues"
+  },
+  "homepage": "https://github.com/karli2000/saveme#readme"
+}

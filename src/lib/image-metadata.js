@@ -15,16 +15,16 @@ export async function addImageMetadata(blob, url, datetime) {
 
   try {
     switch (mimeType) {
-      case 'image/jpeg':
-      case 'image/jpg':
-        return await addJpegMetadata(blob, url, datetime);
-      case 'image/png':
-        return await addPngMetadata(blob, url, datetime);
-      case 'image/webp':
-        return await addWebpMetadata(blob, url, datetime);
-      default:
-        // Format doesn't support metadata or not implemented
-        return blob;
+    case 'image/jpeg':
+    case 'image/jpg':
+      return await addJpegMetadata(blob, url, datetime);
+    case 'image/png':
+      return await addPngMetadata(blob, url, datetime);
+    case 'image/webp':
+      return await addWebpMetadata(blob, url, datetime);
+    default:
+      // Format doesn't support metadata or not implemented
+      return blob;
     }
   } catch (error) {
     console.warn('Failed to add metadata:', error);
@@ -111,9 +111,6 @@ function createJpegExifSegment(url, datetime) {
  * Build TIFF structure with IFD0 and EXIF sub-IFD
  */
 function buildTiffStructure(description, datetime) {
-  const chunks = [];
-  let currentOffset = 8; // Start after TIFF header
-
   // Strings to embed (must be null-terminated, exactly 20 chars for datetime)
   const descStr = description + '\0';
   const dateStr = datetime + '\0'; // Should be exactly 20 bytes: "YYYY:MM:DD HH:MM:SS\0"
