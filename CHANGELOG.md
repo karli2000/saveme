@@ -2,9 +2,25 @@
 
 All notable changes to SaveMe Chrome Extension.
 
-## [1.0.0] - 2025-12-21
+## [1.2.0] - 2025-12-23
 
 ### Added
+
+- Pending save recovery: when re-authentication is required, the image save request is stored and automatically retried after successful reconnection
+- Pending saves expire after 10 minutes for security
+
+### Changed
+
+- Token refresh interval reduced from 24 hours to 3 hours for better reliability with work/school accounts
+
+### Fixed
+
+- Context menu duplicate ID error on extension update (now clears existing menus before recreating)
+
+## [1.0.0] - 2025-12-21
+
+### Features
+
 - Right-click context menu to save images directly to OneDrive
 - OAuth 2.0 authentication with PKCE flow for Microsoft accounts
 - Support for both personal and work/school Microsoft accounts (common tenant)
@@ -16,6 +32,7 @@ All notable changes to SaveMe Chrome Extension.
 - Re-authentication prompt when refresh token expires
 
 ### Token Management
+
 - Periodic token refresh every 3 hours via Chrome alarms API
 - Token refresh on browser startup
 - Preserve existing refresh token if new one not returned
@@ -23,6 +40,7 @@ All notable changes to SaveMe Chrome Extension.
 - Auto-open options page when re-authentication is required
 
 ### Technical Details
+
 - Chrome Extension Manifest V3 with service worker
 - Microsoft Graph API for OneDrive file operations
 - RFC 1123 date format for PNG metadata
@@ -31,6 +49,7 @@ All notable changes to SaveMe Chrome Extension.
 - CRC-32 checksums for PNG tEXt chunks
 
 ### Documentation
+
 - README with installation and usage instructions
 - Privacy policy
 - CLAUDE.md for AI assistant guidance

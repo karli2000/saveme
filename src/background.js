@@ -182,6 +182,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
     // Open options page if re-authentication is required
     if (error.requiresReauth) {
+      // Store pending save request so it can be retried after re-auth
+      await chrome.storage.local.set({
+        pendingSave: {
+          imageUrl: imageUrl,
+          pageUrl: tab?.url,
+          timestamp: Date.now()
+        }
+      });
       openOptionsPage();
     }
   }
@@ -372,7 +380,100 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // Keep channel open for async response
   }
+
+  if (message.type === 'retryPendingSave') {
+    retryPendingSave().then(result => {
+      sendResponse(result);
+    });
+    return true;
+  }
 });
+
+/**
+ * Retry a pending save after re-authentication
+ */
+async function retryPendingSave() {
+  const result = await chrome.storage.local.get('pendingSave');
+  const pending = result.pendingSave;
+
+  if (!pending) {
+    return { success: false, reason: 'no_pending' };
+  }
+
+  // Check if pending save is not too old (max 10 minutes)
+  if (Date.now() - pending.timestamp > 10 * 60 * 1000) {
+    await chrome.storage.local.remove('pendingSave');
+    return { success: false, reason: 'expired' };
+  }
+
+  try {
+    // Check if authenticated
+    const authenticated = await isAuthenticated();
+    if (!authenticated) {
+      return { success: false, reason: 'not_authenticated' };
+    }
+
+    // Check if folder is selected
+    const folder = await getSelectedFolder();
+    if (!folder) {
+      return { success: false, reason: 'no_folder' };
+    }
+
+    const notifSettings = await getNotificationSettings();
+
+    // Show progress notification
+    if (notifSettings.enabled && notifSettings.mode === 'all') {
+      showNotification('Saving...', 'Retrying pending image...', 'info');
+    }
+
+    // Fetch the image
+    const { blob, mimeType, extension } = await fetchImage(pending.imageUrl);
+
+    // Calculate hash to check for duplicates
+    const imageHash = await calculateImageHash(blob);
+
+    // Check if this image was already saved
+    const isDuplicate = await checkDuplicate(imageHash);
+    if (isDuplicate) {
+      await chrome.storage.local.remove('pendingSave');
+      if (notifSettings.enabled) {
+        showNotification('Duplicate', 'This image was already saved recently', 'info');
+      }
+      return { success: true, reason: 'duplicate' };
+    }
+
+    // Generate filename and timestamp
+    const saveDate = new Date();
+    const filename = generateFilename(pending.imageUrl, extension, saveDate);
+
+    // Add metadata to supported formats
+    const blobWithMetadata = await addImageMetadata(blob, pending.imageUrl, saveDate);
+
+    // Update notification
+    if (notifSettings.enabled && notifSettings.mode === 'all') {
+      showNotification('Saving...', 'Uploading to OneDrive...', 'info');
+    }
+
+    // Upload to OneDrive
+    await uploadFile(blobWithMetadata, filename, folder.id);
+
+    // Store hash after successful upload
+    await storeImageHash(imageHash, pending.imageUrl);
+
+    // Clear pending save
+    await chrome.storage.local.remove('pendingSave');
+
+    // Success notification
+    if (notifSettings.enabled) {
+      showNotification('Saved!', `Image saved to ${folder.name}`, 'success');
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('SaveMe retry error:', error);
+    return { success: false, reason: 'error', message: error.message };
+  }
+}
 
 // ==================== Duplicate Detection ====================
 

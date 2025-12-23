@@ -8,7 +8,6 @@ import {
   getUserInfo,
   clearTokens,
   listFolders,
-  getFolderInfo,
   saveSelectedFolder,
   getSelectedFolder
 } from './lib/onedrive-api.js';
@@ -132,6 +131,9 @@ async function handleConnect() {
     await authenticate();
     await showConnectedState();
     showMessage('Successfully connected to OneDrive!', 'success');
+
+    // Check for pending save and retry it
+    await retryPendingSaveIfExists();
   } catch (error) {
     showMessage('Connection failed: ' + error.message, 'error');
   } finally {
@@ -142,6 +144,47 @@ async function handleConnect() {
       </svg>
       Connect to OneDrive
     `;
+  }
+}
+
+/**
+ * Check for pending save and retry if exists
+ */
+async function retryPendingSaveIfExists() {
+  try {
+    // Check if there's a pending save
+    const result = await chrome.storage.local.get('pendingSave');
+    if (!result.pendingSave) {
+      return;
+    }
+
+    // Check if folder is selected (required for save)
+    const folder = await getSelectedFolder();
+    if (!folder) {
+      showMessage('Please select a folder to save the pending image', 'info');
+      return;
+    }
+
+    // Send message to background script to retry the save
+    showMessage('Retrying pending image save...', 'info');
+
+    chrome.runtime.sendMessage({ type: 'retryPendingSave' }, (response) => {
+      if (response?.success) {
+        if (response.reason === 'duplicate') {
+          showMessage('Pending image was already saved', 'info');
+        } else {
+          showMessage('Pending image saved successfully!', 'success');
+        }
+      } else if (response?.reason === 'expired') {
+        showMessage('Pending save expired (over 10 minutes old)', 'info');
+      } else if (response?.reason === 'no_folder') {
+        showMessage('Please select a folder first', 'error');
+      } else if (response?.message) {
+        showMessage('Failed to save: ' + response.message, 'error');
+      }
+    });
+  } catch (error) {
+    console.error('Error retrying pending save:', error);
   }
 }
 
