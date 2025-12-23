@@ -8,6 +8,7 @@ All notable changes to SaveMe Chrome Extension.
 
 - Pending save recovery: when re-authentication is required, the image save request is stored and automatically retried after successful reconnection
 - Pending saves expire after 10 minutes for security
+- ESLint configuration with `npm run lint` and `npm run lint:fix` scripts
 
 ### Changed
 
