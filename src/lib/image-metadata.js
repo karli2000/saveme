@@ -6,22 +6,23 @@
 /**
  * Add metadata to an image blob if the format supports it
  * @param {Blob} blob - Original image blob
- * @param {string} url - Source URL to embed
+ * @param {string} pageUrl - Browser page URL (Source)
+ * @param {string} imageUrl - Image URL
  * @param {Date} datetime - Datetime to embed
  * @returns {Promise<Blob>} - Image blob with metadata (or original if unsupported)
  */
-export async function addImageMetadata(blob, url, datetime) {
+export async function addImageMetadata(blob, pageUrl, imageUrl, datetime) {
   const mimeType = blob.type;
 
   try {
     switch (mimeType) {
     case 'image/jpeg':
     case 'image/jpg':
-      return await addJpegMetadata(blob, url, datetime);
+      return await addJpegMetadata(blob, pageUrl, imageUrl, datetime);
     case 'image/png':
-      return await addPngMetadata(blob, url, datetime);
+      return await addPngMetadata(blob, pageUrl, imageUrl, datetime);
     case 'image/webp':
-      return await addWebpMetadata(blob, url, datetime);
+      return await addWebpMetadata(blob, pageUrl, imageUrl, datetime);
     default:
       // Format doesn't support metadata or not implemented
       return blob;
@@ -36,7 +37,7 @@ export async function addImageMetadata(blob, url, datetime) {
 /**
  * Add EXIF metadata to JPEG image
  */
-async function addJpegMetadata(blob, url, datetime) {
+async function addJpegMetadata(blob, pageUrl, imageUrl, datetime) {
   const arrayBuffer = await blob.arrayBuffer();
   const data = new Uint8Array(arrayBuffer);
 
@@ -46,7 +47,7 @@ async function addJpegMetadata(blob, url, datetime) {
   }
 
   // Create EXIF segment with metadata
-  const exifSegment = createJpegExifSegment(url, datetime);
+  const exifSegment = createJpegExifSegment(pageUrl, imageUrl, datetime);
 
   // Find position to insert EXIF (after SOI marker)
   let insertPos = 2;
@@ -81,9 +82,9 @@ async function addJpegMetadata(blob, url, datetime) {
 /**
  * Create JPEG APP1 EXIF segment with metadata
  */
-function createJpegExifSegment(url, datetime) {
+function createJpegExifSegment(pageUrl, imageUrl, datetime) {
   const exifDatetime = formatExifDatetime(datetime);
-  const description = `Source: ${url}`;
+  const description = `Source: ${pageUrl} | Image: ${imageUrl}`;
 
   // Build complete EXIF/TIFF structure
   const tiffData = buildTiffStructure(description, exifDatetime);
@@ -258,7 +259,7 @@ function writeIfdEntryBE(ifd, offset, tag, type, count, value) {
 /**
  * Add metadata to PNG image using tEXt chunks
  */
-async function addPngMetadata(blob, url, datetime) {
+async function addPngMetadata(blob, pageUrl, imageUrl, datetime) {
   const arrayBuffer = await blob.arrayBuffer();
   const data = new Uint8Array(arrayBuffer);
 
@@ -273,9 +274,10 @@ async function addPngMetadata(blob, url, datetime) {
   // Create tEXt chunks for metadata
   // "Creation Time" must be in RFC 1123 format per PNG spec
   const rfc1123Date = formatRfc1123Date(datetime);
-  const sourceChunk = createPngTextChunk('Source', url);
+  const sourceChunk = createPngTextChunk('Source', pageUrl);
+  const imageChunk = createPngTextChunk('Image', imageUrl);
   const dateChunk = createPngTextChunk('Creation Time', rfc1123Date);
-  const commentChunk = createPngTextChunk('Comment', `Saved from: ${url} on ${datetime.toISOString()}`);
+  const commentChunk = createPngTextChunk('Comment', `Saved from: ${pageUrl} on ${datetime.toISOString()}`);
 
   // Find position after IHDR chunk to insert our chunks
   let pos = 8; // Skip PNG signature
@@ -283,12 +285,13 @@ async function addPngMetadata(blob, url, datetime) {
   pos += 4 + 4 + ihdrLength + 4; // length + type + data + CRC
 
   // Build new PNG with metadata chunks
-  const metadataSize = sourceChunk.length + dateChunk.length + commentChunk.length;
+  const metadataSize = sourceChunk.length + imageChunk.length + dateChunk.length + commentChunk.length;
   const newData = new Uint8Array(data.length + metadataSize);
 
   newData.set(data.slice(0, pos), 0);
   let insertPos = pos;
   newData.set(sourceChunk, insertPos); insertPos += sourceChunk.length;
+  newData.set(imageChunk, insertPos); insertPos += imageChunk.length;
   newData.set(dateChunk, insertPos); insertPos += dateChunk.length;
   newData.set(commentChunk, insertPos); insertPos += commentChunk.length;
   newData.set(data.slice(pos), insertPos);
@@ -344,7 +347,7 @@ function createPngTextChunk(keyword, text) {
  * WebP has different formats: VP8 (lossy), VP8L (lossless), VP8X (extended)
  * Only VP8X supports metadata chunks (XMP, EXIF, ICC, etc.)
  */
-async function addWebpMetadata(blob, url, datetime) {
+async function addWebpMetadata(blob, pageUrl, imageUrl, datetime) {
   const arrayBuffer = await blob.arrayBuffer();
   const data = new Uint8Array(arrayBuffer);
 
@@ -358,7 +361,7 @@ async function addWebpMetadata(blob, url, datetime) {
   const chunkType = String.fromCharCode(data[12], data[13], data[14], data[15]);
 
   // Create XMP metadata
-  const xmpData = createXmpMetadata(url, datetime);
+  const xmpData = createXmpMetadata(pageUrl, imageUrl, datetime);
   const xmpChunk = createWebpXmpChunk(xmpData);
 
   let newData;
@@ -478,18 +481,20 @@ function createVP8XChunk(width, height, hasXmp) {
 }
 
 /**
- * Create XMP metadata string
+ * Create XMP metadata string with both source and image URLs
  */
-function createXmpMetadata(url, datetime) {
+function createXmpMetadata(pageUrl, imageUrl, datetime) {
   const isoDate = datetime.toISOString();
   return `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description rdf:about=""
       xmlns:dc="http://purl.org/dc/elements/1.1/"
-      xmlns:xmp="http://ns.adobe.com/xap/1.0/">
-      <dc:source>${escapeXml(url)}</dc:source>
-      <dc:description>Saved from: ${escapeXml(url)}</dc:description>
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/">
+      <dc:source>${escapeXml(pageUrl)}</dc:source>
+      <dc:description>Source: ${escapeXml(pageUrl)} | Image: ${escapeXml(imageUrl)}</dc:description>
+      <photoshop:Source>${escapeXml(pageUrl)}</photoshop:Source>
       <xmp:CreateDate>${isoDate}</xmp:CreateDate>
       <xmp:ModifyDate>${isoDate}</xmp:ModifyDate>
     </rdf:Description>

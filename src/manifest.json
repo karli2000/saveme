@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "SaveMe",
-  "version": "1.2.0",
-  "description": "Right-click any image to save it directly to your OneDrive folder",
+  "version": "2.1.0",
+  "description": "Right-click any image to save it to OneDrive, local folder, or other destinations",
   "permissions": [
     "contextMenus",
     "storage",
     "notifications",
     "identity",
-    "alarms"
+    "alarms",
+    "downloads"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -10,11 +10,11 @@
   <div class="container">
     <header>
       <h1>SaveMe Settings</h1>
-      <p class="subtitle">Configure your OneDrive connection to save images</p>
+      <p class="subtitle">Configure save destinations for your images</p>
     </header>
 
     <main>
-      <!-- Connection Section -->
+      <!-- OneDrive Connection Section -->
       <section class="card" id="connection-section">
         <h2>OneDrive Connection</h2>
 
@@ -23,7 +23,7 @@
             <span class="dot"></span>
             <span>Not connected</span>
           </div>
-          <p>Connect your Microsoft account to start saving images to OneDrive.</p>
+          <p>Connect your Microsoft account to save images to OneDrive.</p>
           <button id="connect-btn" class="btn primary">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
@@ -45,37 +45,31 @@
         </div>
       </section>
 
-      <!-- Folder Selection Section -->
-      <section class="card" id="folder-section">
-        <h2>Save Location</h2>
-        <p>Select the OneDrive folder where images will be saved.</p>
+      <!-- Destinations Section -->
+      <section class="card" id="destinations-section">
+        <h2>Save Destinations</h2>
+        <p>Configure where images will be saved. Drag to reorder. Add up to 10 destinations.</p>
 
-        <div id="folder-not-selected" class="folder-status">
-          <span class="warning">No folder selected</span>
-          <button id="select-folder-btn" class="btn primary">Select Folder</button>
+        <div id="destinations-list" class="destinations-container">
+          <!-- Dynamically populated -->
         </div>
 
-        <div id="folder-selected" class="folder-status hidden">
-          <span class="folder-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+        <div id="no-destinations" class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="#ccc">
+            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+          </svg>
+          <p>No destinations configured</p>
+          <p class="hint">Add a destination to start saving images</p>
+        </div>
+
+        <div class="destination-actions">
+          <button id="add-destination-btn" class="btn primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
-          </span>
-          <span id="selected-folder-name">Root</span>
-          <button id="change-folder-btn" class="btn text">Change</button>
-        </div>
-
-        <div id="folder-picker" class="folder-picker hidden">
-          <div class="folder-breadcrumb" id="breadcrumb">
-            <button class="breadcrumb-item" data-id="root">OneDrive</button>
-          </div>
-          <div class="folder-list" id="folder-list">
-            <div class="loading">Loading folders...</div>
-          </div>
-          <div class="folder-actions">
-            <button id="select-current-btn" class="btn primary">Select This Folder</button>
-            <button id="cancel-picker-btn" class="btn secondary">Cancel</button>
-          </div>
+            Add Destination
+          </button>
+          <span id="destination-count" class="destination-count"></span>
         </div>
       </section>
 
@@ -110,14 +104,155 @@
         </div>
       </section>
 
+      <!-- Duplicate Detection Section -->
+      <section class="card" id="duplicate-section">
+        <h2>Duplicate Detection</h2>
+        <p>Control how duplicate images are handled when saving.</p>
+
+        <div class="setting-row">
+          <label class="radio-label">
+            <input type="radio" name="duplicate-mode" value="global" checked>
+            <span>Block duplicates globally</span>
+          </label>
+          <p class="setting-hint">Same image can only be saved once, regardless of destination</p>
+        </div>
+        <div class="setting-row">
+          <label class="radio-label">
+            <input type="radio" name="duplicate-mode" value="per-destination">
+            <span>Block duplicates per destination</span>
+          </label>
+          <p class="setting-hint">Same image can be saved to different destinations, but not twice to the same one</p>
+        </div>
+        <div class="setting-row">
+          <label class="radio-label">
+            <input type="radio" name="duplicate-mode" value="disabled">
+            <span>Allow all duplicates</span>
+          </label>
+          <p class="setting-hint">No duplicate checking, save the same image as many times as you want</p>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="setting-row">
+          <div class="clear-history-row">
+            <div>
+              <span class="setting-label">Duplicate History</span>
+              <p class="setting-hint" id="hash-count-hint">Loading...</p>
+            </div>
+            <button id="clear-history-btn" class="btn secondary">Clear History</button>
+          </div>
+        </div>
+      </section>
+
       <!-- Status Messages -->
       <div id="status-message" class="status-message hidden"></div>
     </main>
 
     <footer>
-      <p>SaveMe v1.0.0</p>
-      <p class="hint">Right-click any image and select "SaveMe" to save it to your OneDrive</p>
+      <p>SaveMe v2.1.0</p>
+      <p class="hint">Right-click any image and select "SaveMe" to save it to your destination</p>
     </footer>
+  </div>
+
+  <!-- Confirm Clear History Modal -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Clear Duplicate History?</h3>
+        <button id="confirm-modal-close-btn" class="btn-icon" title="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p>This will delete all saved image hashes. You will be able to save duplicate images again.</p>
+        <p class="warning-text">This action cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="confirm-cancel-btn" class="btn secondary">Cancel</button>
+        <button id="confirm-clear-btn" class="btn danger">Clear History</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Destination Modal -->
+  <div id="destination-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Add Destination</h3>
+        <button id="modal-close-btn" class="btn-icon" title="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Modal Error Message -->
+        <div id="modal-error" class="status-message error hidden"></div>
+
+        <!-- Provider Type Selection -->
+        <div class="form-group" id="provider-type-group">
+          <label>Destination Type</label>
+          <div class="provider-options">
+            <button class="provider-option" data-type="onedrive">
+              <img src="icons/onedrive.svg" width="32" height="32" alt="OneDrive">
+              <span>OneDrive</span>
+            </button>
+            <button class="provider-option" data-type="local">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+              </svg>
+              <span>Local Folder</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Destination Name -->
+        <div class="form-group">
+          <label for="dest-name">Destination Name</label>
+          <input type="text" id="dest-name" placeholder="e.g., Work, Personal, Screenshots" maxlength="30">
+        </div>
+
+        <!-- OneDrive-specific: Folder Picker -->
+        <div class="form-group provider-config" data-provider="onedrive">
+          <label>OneDrive Folder</label>
+          <div id="onedrive-auth-required" class="auth-required hidden">
+            <p>Please connect to OneDrive first (see above)</p>
+          </div>
+          <div id="dest-folder-display" class="folder-display hidden">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>
+            <span id="dest-folder-name">Select a folder</span>
+            <button type="button" id="dest-change-folder-btn" class="btn text">Change</button>
+          </div>
+          <div id="dest-folder-picker" class="folder-picker hidden">
+            <div class="folder-breadcrumb" id="dest-breadcrumb"></div>
+            <div class="folder-list" id="dest-folder-list">
+              <div class="loading">Loading folders...</div>
+            </div>
+            <div class="folder-actions">
+              <button type="button" id="dest-select-folder-btn" class="btn primary">Select This Folder</button>
+              <button type="button" id="dest-cancel-folder-btn" class="btn secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Local-specific: Subfolder Name -->
+        <div class="form-group provider-config" data-provider="local">
+          <label for="dest-subfolder">Subfolder Name</label>
+          <input type="text" id="dest-subfolder" placeholder="SaveMe">
+          <p class="hint">Folder will be created inside your Downloads folder</p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="modal-cancel-btn" class="btn secondary">Cancel</button>
+        <button id="modal-save-btn" class="btn primary">Save Destination</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="options.js"></script>

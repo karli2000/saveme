@@ -2,6 +2,74 @@
 
 All notable changes to SaveMe Chrome Extension.
 
+## [2.1.0] - 2026-01-09
+
+### Added
+
+- **Clear duplicate history**: New button in settings to clear all tracked image hashes with confirmation modal
+- **Hash count display**: Shows number of tracked images in the Duplicate Detection settings
+
+### Changed
+
+- **Filename format**: Simplified to `domain_datetime.extension` (e.g., `example_com_2026-01-09_14-30-45.jpg`)
+- **Domain source**: Now uses the browser page URL domain instead of image URL domain
+- **Metadata structure**: Now embeds both Source (page URL) and Image (image URL) separately
+  - JPEG: Description field contains `Source: {pageUrl} | Image: {imageUrl}`
+  - PNG: Separate `Source` and `Image` tEXt chunks
+  - WebP: XMP with `dc:source` for page URL and combined description
+
+## [2.0.0] - 2026-01-09
+
+### Added
+
+- **Multi-destination support**: Save images to up to 10 different destinations
+- **Local folder destination**: Save images directly to Downloads folder (or subfolder) using Chrome Downloads API
+- **Dynamic context menu**:
+  - "SaveMe - Setup Required" when no destinations configured
+  - "SaveMe to {name}" for single destination
+  - Submenu with destination names for multiple destinations
+- **Destination management UI**: Add, edit, and delete destinations from settings page
+- **Drag & drop reordering**: Reorder destinations by dragging in the settings page
+- **Provider architecture**: Modular provider system for easy addition of new storage backends
+- **Duplicate detection modes**:
+  - Global: Block duplicates across all destinations (default)
+  - Per-destination: Allow same image in different destinations
+  - Disabled: No duplicate checking
+- **Enhanced duplicate notifications**: Shows which destination the image was already saved to
+- **OneDrive official logo**: Uses official Microsoft OneDrive icon in settings
+
+### Changed
+
+- Complete rewrite of options page with new destinations-based UI
+- Migrated storage schema from single folder to multi-destination array
+- Updated manifest to version 2.0.0
+- Added `downloads` permission for local folder saving
+- Modal validation errors now display inside the modal instead of behind it
+- Improved pending save handling: now stores pending save when provider is not ready
+
+### Fixed
+
+- Pending save not being stored when `isReady()` check fails (now saves before opening auth page)
+- Duplicate check overwriting hash entries in per-destination mode (now tracks array of destinations)
+- `URL.createObjectURL` not available in service workers (converted to data URL for Downloads API)
+- Token refresh alarm not recreated if cleared (now verified and recreated on browser startup)
+
+### Technical Details
+
+- New provider pattern with `BaseProvider` abstract class
+- `OneDriveProvider` wraps existing OneDrive API
+- `LocalFolderProvider` uses Chrome Downloads API with data URL conversion
+- `ProviderRegistry` factory for creating provider instances
+- Storage schema version 2 with automatic migration from v1
+- Context menu rebuilds automatically when destinations change
+- Hash storage updated to track multiple destinations per image
+
+### Migration
+
+- Existing OneDrive folder configuration is automatically migrated to first destination
+- Legacy `selectedFolder` storage key preserved for rollback compatibility
+- Legacy hashes without destination IDs are treated as global blockers until expiry
+
 ## [1.2.0] - 2025-12-23
 
 ### Added

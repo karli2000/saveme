@@ -1,37 +1,83 @@
 /**
  * SaveMe Background Service Worker
- * Handles context menu, image fetching, and OneDrive upload
+ * Handles context menu, image fetching, and multi-destination upload
  */
 
-import {
-  isAuthenticated,
-  getSelectedFolder,
-  uploadFile,
-  getValidAccessToken,
-  refreshAccessToken,
-  getTokens
-} from './lib/onedrive-api.js';
-
+import { isAuthenticated, refreshAccessToken, getTokens } from './lib/onedrive-api.js';
 import { addImageMetadata } from './lib/image-metadata.js';
+import { createProvider } from './lib/providers/provider-registry.js';
+import {
+  getDestinationsSorted,
+  getDestinationById,
+  migrateFromLegacy
+} from './lib/storage-schema.js';
 
 // Constants
-const CONTEXT_MENU_ID = 'saveme-image';
-const HASH_RETENTION_DAYS = 90; // Keep hashes for 3 months
-const HASH_CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // Clean up once per day
-const MAX_STORED_HASHES = 10000; // Maximum hashes to store (safety limit)
+const CONTEXT_MENU_PARENT_ID = 'saveme-parent';
+const CONTEXT_MENU_SETUP_ID = 'saveme-setup';
+const HASH_RETENTION_DAYS = 90;
+const HASH_CLEANUP_INTERVAL = 24 * 60 * 60 * 1000;
+const MAX_STORED_HASHES = 10000;
 
 /**
- * Create the context menu on extension install and open settings
+ * Build context menu based on destination count
  */
-chrome.runtime.onInstalled.addListener((details) => {
-  // Remove existing menu items first (prevents duplicate ID error on update)
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: CONTEXT_MENU_ID,
-      title: 'SaveMe',
-      contexts: ['image']
+async function rebuildContextMenu() {
+  return new Promise((resolve) => {
+    chrome.contextMenus.removeAll(async () => {
+      const destinations = await getDestinationsSorted();
+
+      if (destinations.length === 0) {
+        // No destinations - show setup prompt
+        chrome.contextMenus.create({
+          id: CONTEXT_MENU_SETUP_ID,
+          title: 'SaveMe - Setup Required',
+          contexts: ['image']
+        });
+      } else if (destinations.length === 1) {
+        // Single destination - flat menu item
+        const dest = destinations[0];
+        chrome.contextMenus.create({
+          id: `saveme-${dest.id}`,
+          title: `SaveMe to ${dest.name}`,
+          contexts: ['image']
+        });
+      } else {
+        // Multiple destinations - submenu
+        chrome.contextMenus.create({
+          id: CONTEXT_MENU_PARENT_ID,
+          title: 'SaveMe',
+          contexts: ['image']
+        });
+
+        // Create child items in order
+        for (const dest of destinations) {
+          chrome.contextMenus.create({
+            id: `saveme-${dest.id}`,
+            parentId: CONTEXT_MENU_PARENT_ID,
+            title: dest.name,
+            contexts: ['image']
+          });
+        }
+      }
+
+      resolve();
     });
   });
+}
+
+/**
+ * Initialize on extension install/update
+ */
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // Run migration from legacy schema
+  const migrationResult = await migrateFromLegacy();
+  if (migrationResult.migrated) {
+    console.log('SaveMe: Migration completed', migrationResult);
+  }
+
+  // Build context menu
+  await rebuildContextMenu();
 
   // Open settings page on first install
   if (details.reason === 'install') {
@@ -40,8 +86,8 @@ chrome.runtime.onInstalled.addListener((details) => {
 
   // Set up periodic token refresh alarm (every 3 hours)
   chrome.alarms.create('refreshToken', {
-    delayInMinutes: 5, // First run in 5 minutes
-    periodInMinutes: 60 * 3 // Then every 3 hours
+    delayInMinutes: 5,
+    periodInMinutes: 60 * 3
   });
 });
 
@@ -49,7 +95,20 @@ chrome.runtime.onInstalled.addListener((details) => {
  * Refresh token on browser startup
  */
 chrome.runtime.onStartup.addListener(async () => {
-  // Small delay to let things initialize
+  // Rebuild context menu on startup
+  await rebuildContextMenu();
+
+  // Ensure the refresh alarm exists (in case it was cleared)
+  const existingAlarm = await chrome.alarms.get('refreshToken');
+  if (!existingAlarm) {
+    console.log('SaveMe: Recreating token refresh alarm on startup');
+    chrome.alarms.create('refreshToken', {
+      delayInMinutes: 5,
+      periodInMinutes: 60 * 3
+    });
+  }
+
+  // Small delay to let things initialize, then refresh token
   setTimeout(() => proactiveTokenRefresh(), 10000);
 });
 
@@ -63,8 +122,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 /**
- * Proactively refresh token to prevent expiration
- * Microsoft refresh tokens last 90 days if unused, refreshing extends them
+ * Listen for storage changes to rebuild menu
+ */
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes.destinations) {
+    rebuildContextMenu();
+  }
+});
+
+/**
+ * Proactively refresh OneDrive token
  */
 async function proactiveTokenRefresh() {
   try {
@@ -74,7 +141,6 @@ async function proactiveTokenRefresh() {
       console.log('SaveMe: Token refreshed proactively');
     }
   } catch (error) {
-    // Don't show notification for background refresh failures
     console.warn('SaveMe: Proactive token refresh failed:', error.message);
   }
 }
@@ -83,8 +149,7 @@ async function proactiveTokenRefresh() {
  * Handle context menu click
  */
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== CONTEXT_MENU_ID) return;
-
+  const menuId = info.menuItemId;
   const imageUrl = info.srcUrl;
 
   if (!imageUrl) {
@@ -92,99 +157,115 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     return;
   }
 
+  // Handle setup required click
+  if (menuId === CONTEXT_MENU_SETUP_ID) {
+    openOptionsPage();
+    return;
+  }
+
+  // Extract destination ID from menu item ID
+  if (typeof menuId === 'string' && menuId.startsWith('saveme-')) {
+    const destId = menuId.replace('saveme-', '');
+    await saveToDestination(destId, imageUrl, tab);
+  }
+});
+
+/**
+ * Save image to specific destination
+ */
+async function saveToDestination(destinationId, imageUrl, tab) {
+  const destination = await getDestinationById(destinationId);
+  if (!destination) {
+    showNotification('Error', 'Destination not found', 'error');
+    await rebuildContextMenu();
+    return;
+  }
+
+  const provider = createProvider(destination);
+  const notifSettings = await getNotificationSettings();
+
   try {
-    // Check if authenticated
-    const authenticated = await isAuthenticated();
-    if (!authenticated) {
-      showNotification(
-        'Not Connected',
-        'Please connect to OneDrive in the extension settings',
-        'error',
-        true // Always show setup errors
-      );
-      openOptionsPage();
+    // Check if provider is ready
+    const readyCheck = await provider.isReady();
+    if (!readyCheck.ready) {
+      showNotification('Not Ready', readyCheck.error, 'error', true);
+      if (destination.type === 'onedrive') {
+        // Store pending save so it can be retried after re-authentication
+        await chrome.storage.local.set({
+          pendingSave: {
+            destinationId: destinationId,
+            imageUrl: imageUrl,
+            pageUrl: tab?.url,
+            timestamp: Date.now()
+          }
+        });
+        openOptionsPage();
+      }
       return;
     }
 
-    // Check if folder is selected
-    const folder = await getSelectedFolder();
-    if (!folder) {
-      showNotification(
-        'No Folder Selected',
-        'Please select a save folder in the extension settings',
-        'error',
-        true // Always show setup errors
-      );
-      openOptionsPage();
-      return;
-    }
-
-    // Get notification settings
-    const notifSettings = await getNotificationSettings();
-
-    // Show progress notification (only if mode is 'all')
+    // Show progress notification
     if (notifSettings.enabled && notifSettings.mode === 'all') {
       showNotification('Saving...', 'Downloading image...', 'info');
     }
 
     // Fetch the image
-    const { blob, mimeType, extension } = await fetchImage(imageUrl);
+    const { blob, extension } = await fetchImage(imageUrl);
 
     // Calculate hash to check for duplicates
     const imageHash = await calculateImageHash(blob);
 
     // Check if this image was already saved
-    const isDuplicate = await checkDuplicate(imageHash);
-    if (isDuplicate) {
+    const duplicateCheck = await checkDuplicate(imageHash, destinationId);
+    if (duplicateCheck.isDuplicate) {
       if (notifSettings.enabled) {
-        showNotification(
-          'Duplicate',
-          'This image was already saved recently',
-          'info'
-        );
+        const message = duplicateCheck.savedTo
+          ? `Already saved to "${duplicateCheck.savedTo}"`
+          : 'This image was already saved recently';
+        showNotification('Duplicate', message, 'info');
       }
       return;
     }
 
     // Generate filename and timestamp
     const saveDate = new Date();
-    const filename = generateFilename(imageUrl, extension, saveDate);
+    const pageUrl = tab?.url || imageUrl;
+    const filename = generateFilename(pageUrl, imageUrl, extension, saveDate);
 
     // Add metadata to supported formats (JPEG, PNG, WebP)
-    const blobWithMetadata = await addImageMetadata(blob, imageUrl, saveDate);
+    const blobWithMetadata = await addImageMetadata(blob, pageUrl, imageUrl, saveDate);
 
-    // Update notification (only if mode is 'all')
+    // Update notification
     if (notifSettings.enabled && notifSettings.mode === 'all') {
-      showNotification('Saving...', 'Uploading to OneDrive...', 'info');
+      const destInfo = await provider.getDisplayInfo();
+      showNotification('Saving...', `Uploading to ${destInfo.name}...`, 'info');
     }
 
-    // Upload to OneDrive
-    await uploadFile(blobWithMetadata, filename, folder.id);
+    // Save using provider
+    const result = await provider.saveFile(blobWithMetadata, filename);
+
+    if (!result.success) {
+      throw Object.assign(new Error(result.error), { requiresReauth: result.requiresReauth });
+    }
 
     // Store hash after successful upload
-    await storeImageHash(imageHash, imageUrl);
+    await storeImageHash(imageHash, imageUrl, destinationId);
 
-    // Success notification (show if notifications enabled)
+    // Success notification
     if (notifSettings.enabled) {
-      showNotification(
-        'Saved!',
-        `Image saved to ${folder.name}`,
-        'success'
-      );
+      showNotification('Saved!', `Image saved to ${destination.name}`, 'success');
     }
 
   } catch (error) {
     console.error('SaveMe error:', error);
-    // Always show errors if notifications are enabled
-    const notifSettings = await getNotificationSettings();
     if (notifSettings.enabled) {
       showNotification('Error', error.message, 'error');
     }
-    // Open options page if re-authentication is required
-    if (error.requiresReauth) {
-      // Store pending save request so it can be retried after re-auth
+    // Handle re-authentication for OneDrive
+    if (error.requiresReauth && destination.type === 'onedrive') {
       await chrome.storage.local.set({
         pendingSave: {
+          destinationId: destinationId,
           imageUrl: imageUrl,
           pageUrl: tab?.url,
           timestamp: Date.now()
@@ -193,201 +274,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       openOptionsPage();
     }
   }
-});
-
-/**
- * Fetch an image and return it as a blob
- */
-async function fetchImage(url) {
-  // Try different fetch strategies for CORS
-  let response;
-
-  try {
-    // First try: normal fetch (works for same-origin and CORS-enabled images)
-    response = await fetch(url);
-  } catch (e) {
-    try {
-      // Second try: no-cors mode (returns opaque response, limited use)
-      response = await fetch(url, { mode: 'no-cors' });
-    } catch (e2) {
-      throw new Error('Could not fetch image. It may be protected from downloading.');
-    }
-  }
-
-  if (!response.ok && response.type !== 'opaque') {
-    throw new Error(`Failed to fetch image: ${response.status}`);
-  }
-
-  const blob = await response.blob();
-
-  // Determine MIME type
-  let mimeType = blob.type;
-  let extension = getExtensionFromMimeType(mimeType);
-
-  // If no MIME type, try to get from URL
-  if (!mimeType || mimeType === 'application/octet-stream') {
-    const urlExtension = getExtensionFromUrl(url);
-    if (urlExtension) {
-      extension = urlExtension;
-      mimeType = getMimeTypeFromExtension(extension);
-    }
-  }
-
-  // Default to png if still unknown
-  if (!extension) {
-    extension = 'png';
-    mimeType = 'image/png';
-  }
-
-  return { blob, mimeType, extension };
 }
-
-/**
- * Generate a filename from the image URL and datetime
- */
-function generateFilename(url, extension, datetime = new Date()) {
-  // Parse URL
-  let urlObj;
-  try {
-    urlObj = new URL(url);
-  } catch {
-    urlObj = { hostname: 'unknown', pathname: '/image' };
-  }
-
-  // Get domain (sanitized)
-  const domain = urlObj.hostname
-    .replace(/^www\./, '')
-    .replace(/[^a-zA-Z0-9.-]/g, '_');
-
-  // Get path slug (last part of path without extension)
-  const pathParts = urlObj.pathname.split('/').filter(Boolean);
-  let pathSlug = pathParts[pathParts.length - 1] || 'image';
-
-  // Remove existing extension from path slug
-  pathSlug = pathSlug.replace(/\.[^.]+$/, '');
-
-  // Sanitize path slug
-  pathSlug = pathSlug
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .substring(0, 50); // Limit length
-
-  // Generate timestamp
-  const timestamp = datetime.toISOString()
-    .replace(/T/, '_')
-    .replace(/:/g, '-')
-    .replace(/\..+/, '');
-
-  // Combine parts
-  return `${domain}_${pathSlug}_${timestamp}.${extension}`;
-}
-
-/**
- * Get file extension from MIME type
- */
-function getExtensionFromMimeType(mimeType) {
-  const mimeMap = {
-    'image/png': 'png',
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'image/svg+xml': 'svg',
-    'image/bmp': 'bmp',
-    'image/tiff': 'tiff',
-    'image/x-icon': 'ico'
-  };
-  return mimeMap[mimeType] || null;
-}
-
-/**
- * Get MIME type from file extension
- */
-function getMimeTypeFromExtension(extension) {
-  const extMap = {
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'gif': 'image/gif',
-    'webp': 'image/webp',
-    'svg': 'image/svg+xml',
-    'bmp': 'image/bmp',
-    'tiff': 'image/tiff',
-    'ico': 'image/x-icon'
-  };
-  return extMap[extension.toLowerCase()] || 'application/octet-stream';
-}
-
-/**
- * Get file extension from URL
- */
-function getExtensionFromUrl(url) {
-  try {
-    const pathname = new URL(url).pathname;
-    const match = pathname.match(/\.([a-zA-Z0-9]+)(?:\?.*)?$/);
-    if (match) {
-      const ext = match[1].toLowerCase();
-      // Verify it's an image extension
-      const validExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'ico'];
-      if (validExtensions.includes(ext)) {
-        return ext === 'jpeg' ? 'jpg' : ext;
-      }
-    }
-  } catch {
-    // Invalid URL
-  }
-  return null;
-}
-
-/**
- * Get notification settings from storage
- */
-async function getNotificationSettings() {
-  const result = await chrome.storage.sync.get('notificationSettings');
-  return result.notificationSettings || {
-    enabled: true,
-    mode: 'all'
-  };
-}
-
-/**
- * Show a Chrome notification
- */
-function showNotification(title, message, type = 'info', forceShow = false) {
-  // forceShow bypasses settings (used for setup errors)
-  const iconPath = 'icons/icon48.png';
-
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: iconPath,
-    title: `SaveMe: ${title}`,
-    message: message,
-    priority: type === 'error' ? 2 : 1
-  });
-}
-
-/**
- * Open the options page
- */
-function openOptionsPage() {
-  chrome.runtime.openOptionsPage();
-}
-
-// Listen for messages from options page
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'checkAuth') {
-    isAuthenticated().then(result => {
-      sendResponse({ authenticated: result });
-    });
-    return true; // Keep channel open for async response
-  }
-
-  if (message.type === 'retryPendingSave') {
-    retryPendingSave().then(result => {
-      sendResponse(result);
-    });
-    return true;
-  }
-});
 
 /**
  * Retry a pending save after re-authentication
@@ -406,20 +293,29 @@ async function retryPendingSave() {
     return { success: false, reason: 'expired' };
   }
 
+  // Get destination (use stored ID or fall back to first destination)
+  let destination;
+  if (pending.destinationId) {
+    destination = await getDestinationById(pending.destinationId);
+  }
+  if (!destination) {
+    const destinations = await getDestinationsSorted();
+    destination = destinations.find(d => d.type === 'onedrive');
+  }
+  if (!destination) {
+    await chrome.storage.local.remove('pendingSave');
+    return { success: false, reason: 'no_destination' };
+  }
+
+  const provider = createProvider(destination);
+  const notifSettings = await getNotificationSettings();
+
   try {
-    // Check if authenticated
-    const authenticated = await isAuthenticated();
-    if (!authenticated) {
-      return { success: false, reason: 'not_authenticated' };
+    // Check if provider is ready
+    const readyCheck = await provider.isReady();
+    if (!readyCheck.ready) {
+      return { success: false, reason: 'not_ready', error: readyCheck.error };
     }
-
-    // Check if folder is selected
-    const folder = await getSelectedFolder();
-    if (!folder) {
-      return { success: false, reason: 'no_folder' };
-    }
-
-    const notifSettings = await getNotificationSettings();
 
     // Show progress notification
     if (notifSettings.enabled && notifSettings.mode === 'all') {
@@ -427,45 +323,53 @@ async function retryPendingSave() {
     }
 
     // Fetch the image
-    const { blob, mimeType, extension } = await fetchImage(pending.imageUrl);
+    const { blob, extension } = await fetchImage(pending.imageUrl);
 
     // Calculate hash to check for duplicates
     const imageHash = await calculateImageHash(blob);
 
     // Check if this image was already saved
-    const isDuplicate = await checkDuplicate(imageHash);
-    if (isDuplicate) {
+    const duplicateCheck = await checkDuplicate(imageHash, destination.id);
+    if (duplicateCheck.isDuplicate) {
       await chrome.storage.local.remove('pendingSave');
       if (notifSettings.enabled) {
-        showNotification('Duplicate', 'This image was already saved recently', 'info');
+        const message = duplicateCheck.savedTo
+          ? `Already saved to "${duplicateCheck.savedTo}"`
+          : 'This image was already saved recently';
+        showNotification('Duplicate', message, 'info');
       }
       return { success: true, reason: 'duplicate' };
     }
 
     // Generate filename and timestamp
     const saveDate = new Date();
-    const filename = generateFilename(pending.imageUrl, extension, saveDate);
+    const pageUrl = pending.pageUrl || pending.imageUrl;
+    const filename = generateFilename(pageUrl, pending.imageUrl, extension, saveDate);
 
     // Add metadata to supported formats
-    const blobWithMetadata = await addImageMetadata(blob, pending.imageUrl, saveDate);
+    const blobWithMetadata = await addImageMetadata(blob, pageUrl, pending.imageUrl, saveDate);
 
     // Update notification
     if (notifSettings.enabled && notifSettings.mode === 'all') {
-      showNotification('Saving...', 'Uploading to OneDrive...', 'info');
+      showNotification('Saving...', `Uploading to ${destination.name}...`, 'info');
     }
 
-    // Upload to OneDrive
-    await uploadFile(blobWithMetadata, filename, folder.id);
+    // Save using provider
+    const saveResult = await provider.saveFile(blobWithMetadata, filename);
+
+    if (!saveResult.success) {
+      throw new Error(saveResult.error);
+    }
 
     // Store hash after successful upload
-    await storeImageHash(imageHash, pending.imageUrl);
+    await storeImageHash(imageHash, pending.imageUrl, destination.id);
 
     // Clear pending save
     await chrome.storage.local.remove('pendingSave');
 
     // Success notification
     if (notifSettings.enabled) {
-      showNotification('Saved!', `Image saved to ${folder.name}`, 'success');
+      showNotification('Saved!', `Image saved to ${destination.name}`, 'success');
     }
 
     return { success: true };
@@ -475,11 +379,185 @@ async function retryPendingSave() {
   }
 }
 
-// ==================== Duplicate Detection ====================
+// ==================== Utility Functions ====================
 
 /**
- * Calculate SHA-256 hash of image blob
+ * Fetch an image and return it as a blob
  */
+async function fetchImage(url) {
+  let response;
+
+  try {
+    response = await fetch(url);
+  } catch (_e) {
+    try {
+      response = await fetch(url, { mode: 'no-cors' });
+    } catch (_e2) {
+      throw new Error('Could not fetch image. It may be protected from downloading.');
+    }
+  }
+
+  if (!response.ok && response.type !== 'opaque') {
+    throw new Error(`Failed to fetch image: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+
+  let mimeType = blob.type;
+  let extension = getExtensionFromMimeType(mimeType);
+
+  if (!mimeType || mimeType === 'application/octet-stream') {
+    const urlExtension = getExtensionFromUrl(url);
+    if (urlExtension) {
+      extension = urlExtension;
+      mimeType = getMimeTypeFromExtension(extension);
+    }
+  }
+
+  if (!extension) {
+    extension = 'png';
+    mimeType = 'image/png';
+  }
+
+  return { blob, mimeType, extension };
+}
+
+/**
+ * Generate a filename from the page URL domain and datetime
+ * @param {string} pageUrl - The browser page URL (used for domain)
+ * @param {string} imageUrl - The image URL (fallback for domain)
+ * @param {string} extension - File extension
+ * @param {Date} datetime - Save datetime
+ */
+function generateFilename(pageUrl, imageUrl, extension, datetime = new Date()) {
+  // Get domain from page URL
+  let domain = 'unknown';
+  try {
+    const pageUrlObj = new URL(pageUrl);
+    domain = pageUrlObj.hostname
+      .replace(/^www\./, '')
+      .replace(/\./g, '_')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+  } catch {
+    // Use image URL domain as fallback
+    try {
+      const imageUrlObj = new URL(imageUrl);
+      domain = imageUrlObj.hostname
+        .replace(/^www\./, '')
+        .replace(/\./g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '_');
+    } catch {
+      domain = 'unknown';
+    }
+  }
+
+  const timestamp = datetime.toISOString()
+    .replace(/T/, '_')
+    .replace(/:/g, '-')
+    .replace(/\..+/, '');
+
+  return `${domain}_${timestamp}.${extension}`;
+}
+
+function getExtensionFromMimeType(mimeType) {
+  const mimeMap = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
+    'image/x-icon': 'ico'
+  };
+  return mimeMap[mimeType] || null;
+}
+
+function getMimeTypeFromExtension(extension) {
+  const extMap = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'svg': 'image/svg+xml',
+    'bmp': 'image/bmp',
+    'tiff': 'image/tiff',
+    'ico': 'image/x-icon'
+  };
+  return extMap[extension.toLowerCase()] || 'application/octet-stream';
+}
+
+function getExtensionFromUrl(url) {
+  try {
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(/\.([a-zA-Z0-9]+)(?:\?.*)?$/);
+    if (match) {
+      const ext = match[1].toLowerCase();
+      const validExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'ico'];
+      if (validExtensions.includes(ext)) {
+        return ext === 'jpeg' ? 'jpg' : ext;
+      }
+    }
+  } catch {
+    // Invalid URL
+  }
+  return null;
+}
+
+async function getNotificationSettings() {
+  const result = await chrome.storage.sync.get('notificationSettings');
+  return result.notificationSettings || { enabled: true, mode: 'all' };
+}
+
+function showNotification(title, message, type = 'info', _forceShow = false) {
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title: `SaveMe: ${title}`,
+    message: message,
+    priority: type === 'error' ? 2 : 1
+  });
+}
+
+function openOptionsPage() {
+  chrome.runtime.openOptionsPage();
+}
+
+// ==================== Message Handling ====================
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'checkAuth') {
+    isAuthenticated().then(result => {
+      sendResponse({ authenticated: result });
+    });
+    return true;
+  }
+
+  if (message.type === 'retryPendingSave') {
+    retryPendingSave().then(result => {
+      sendResponse(result);
+    });
+    return true;
+  }
+
+  if (message.type === 'rebuildContextMenu') {
+    rebuildContextMenu().then(() => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+});
+
+// ==================== Duplicate Detection ====================
+
+// Modes: 'global' (once ever), 'per-destination' (once per destination), 'disabled' (allow all)
+async function getDuplicateMode() {
+  const result = await chrome.storage.sync.get('duplicateMode');
+  return result.duplicateMode || 'global';
+}
+
 async function calculateImageHash(blob) {
   const arrayBuffer = await blob.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
@@ -487,42 +565,91 @@ async function calculateImageHash(blob) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Check if image hash already exists (is a duplicate)
- */
-async function checkDuplicate(hash) {
+async function checkDuplicate(hash, destinationId = null) {
+  const mode = await getDuplicateMode();
+
+  // Disabled mode - never a duplicate
+  if (mode === 'disabled') {
+    return { isDuplicate: false };
+  }
+
   const result = await chrome.storage.local.get('imageHashes');
   const hashes = result.imageHashes || {};
-  return hash in hashes;
+
+  if (!(hash in hashes)) {
+    return { isDuplicate: false };
+  }
+
+  const hashData = hashes[hash];
+
+  // Global mode - any existing hash is a duplicate
+  if (mode === 'global') {
+    // Try to get destination name if we have destinations array
+    let savedTo = null;
+    if (hashData.destinations && hashData.destinations.length > 0) {
+      const dest = await getDestinationById(hashData.destinations[0]);
+      savedTo = dest?.name || null;
+    }
+    return { isDuplicate: true, mode: 'global', savedTo };
+  }
+
+  // Per-destination mode
+  if (mode === 'per-destination') {
+    // Legacy hashes without destinations array are treated as global (block everywhere)
+    if (!hashData.destinations) {
+      return { isDuplicate: true, mode: 'legacy' };
+    }
+    // Check if saved to same destination
+    if (hashData.destinations.includes(destinationId)) {
+      const dest = await getDestinationById(destinationId);
+      return { isDuplicate: true, mode: 'per-destination', savedTo: dest?.name || null };
+    }
+  }
+
+  return { isDuplicate: false };
 }
 
-/**
- * Store image hash with timestamp
- */
-async function storeImageHash(hash, url) {
+async function storeImageHash(hash, url, destinationId = null) {
+  const mode = await getDuplicateMode();
+
+  // Don't store hashes if duplicate detection is disabled
+  if (mode === 'disabled') {
+    return;
+  }
+
   const result = await chrome.storage.local.get('imageHashes');
   const hashes = result.imageHashes || {};
 
-  hashes[hash] = {
+  // Get existing hash data or create new
+  const existingData = hashes[hash] || {};
+
+  const hashData = {
     timestamp: Date.now(),
-    url: url.substring(0, 200) // Store truncated URL for reference
+    url: url.substring(0, 200)
   };
 
-  await chrome.storage.local.set({ imageHashes: hashes });
+  // Store destinations array for per-destination mode
+  if (mode === 'per-destination' && destinationId) {
+    // Preserve existing destinations and add new one
+    const existingDestinations = existingData.destinations || [];
+    if (!existingDestinations.includes(destinationId)) {
+      hashData.destinations = [...existingDestinations, destinationId];
+    } else {
+      hashData.destinations = existingDestinations;
+    }
+  }
 
-  // Trigger cleanup of old hashes
+  hashes[hash] = hashData;
+
+  await chrome.storage.local.set({ imageHashes: hashes });
   await cleanupOldHashes();
 }
 
-/**
- * Remove hashes older than retention period and enforce max limit
- */
 async function cleanupOldHashes(forceCleanup = false) {
   const result = await chrome.storage.local.get(['imageHashes', 'lastHashCleanup']);
   const hashes = result.imageHashes || {};
   const lastCleanup = result.lastHashCleanup || 0;
 
-  // Only cleanup once per day (unless forced)
   if (!forceCleanup && Date.now() - lastCleanup < HASH_CLEANUP_INTERVAL) {
     return;
   }
@@ -530,7 +657,6 @@ async function cleanupOldHashes(forceCleanup = false) {
   const cutoffTime = Date.now() - (HASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
   let cleanedCount = 0;
 
-  // Remove expired hashes
   for (const hash in hashes) {
     if (hashes[hash].timestamp < cutoffTime) {
       delete hashes[hash];
@@ -538,10 +664,8 @@ async function cleanupOldHashes(forceCleanup = false) {
     }
   }
 
-  // Enforce maximum limit - remove oldest if over limit
   const hashCount = Object.keys(hashes).length;
   if (hashCount > MAX_STORED_HASHES) {
-    // Sort by timestamp and remove oldest
     const sortedHashes = Object.entries(hashes)
       .sort((a, b) => a[1].timestamp - b[1].timestamp);
 
@@ -561,28 +685,4 @@ async function cleanupOldHashes(forceCleanup = false) {
   if (cleanedCount > 0) {
     console.log(`SaveMe: Cleaned up ${cleanedCount} old image hashes`);
   }
-}
-
-/**
- * Get hash statistics (for debugging/options page)
- */
-async function getHashStats() {
-  const result = await chrome.storage.local.get('imageHashes');
-  const hashes = result.imageHashes || {};
-  const count = Object.keys(hashes).length;
-
-  let oldestTimestamp = Date.now();
-  let newestTimestamp = 0;
-
-  for (const hash in hashes) {
-    const ts = hashes[hash].timestamp;
-    if (ts < oldestTimestamp) oldestTimestamp = ts;
-    if (ts > newestTimestamp) newestTimestamp = ts;
-  }
-
-  return {
-    count,
-    oldestDate: count > 0 ? new Date(oldestTimestamp).toISOString() : null,
-    newestDate: count > 0 ? new Date(newestTimestamp).toISOString() : null
-  };
 }

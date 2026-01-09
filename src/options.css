@@ -414,3 +414,373 @@ footer p {
   height: 18px;
   accent-color: #0078d4;
 }
+
+/* ==================== Destinations ==================== */
+
+.destinations-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  min-height: 20px;
+}
+
+.destination-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: grab;
+  user-select: none;
+}
+
+.destination-card:hover {
+  background: #f5f5f5;
+  border-color: #d0d0d0;
+}
+
+.destination-card.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.destination-card.drag-over {
+  border-color: #0078d4;
+  border-style: dashed;
+  background: #f0f7ff;
+}
+
+.drag-handle {
+  color: #999;
+  cursor: grab;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drag-handle:hover {
+  color: #666;
+}
+
+.drag-handle span {
+  display: block;
+  width: 12px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.destination-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.destination-icon.onedrive {
+  background: transparent;
+}
+
+.destination-icon.local {
+  background: #6b7280;
+  color: white;
+}
+
+.destination-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.destination-name {
+  font-weight: 500;
+  color: #1a1a1a;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.destination-path {
+  font-size: 12px;
+  color: #666;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.destination-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  transition: all 0.15s ease;
+}
+
+.btn-icon:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.btn-icon.delete-btn:hover {
+  background: #fde7e9;
+  color: #d83b01;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: #999;
+}
+
+.empty-state svg {
+  margin-bottom: 12px;
+}
+
+.empty-state p {
+  margin-bottom: 4px;
+}
+
+.destination-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.destination-count {
+  font-size: 13px;
+  color: #666;
+}
+
+/* ==================== Modal ==================== */
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #e0e0e0;
+  background: #f9f9f9;
+}
+
+/* Form Groups */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group > label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.form-group input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.form-group input[type="text"]:focus {
+  outline: none;
+  border-color: #0078d4;
+  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+}
+
+.form-group .hint {
+  font-size: 12px;
+  color: #666;
+  margin-top: 6px;
+}
+
+/* Provider Selection */
+.provider-options {
+  display: flex;
+  gap: 12px;
+}
+
+.provider-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #666;
+}
+
+.provider-option:hover {
+  border-color: #0078d4;
+  background: #f0f7ff;
+  color: #0078d4;
+}
+
+.provider-option.selected {
+  border-color: #0078d4;
+  background: #e6f2ff;
+  color: #0078d4;
+}
+
+.provider-option span {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.provider-config {
+  display: none;
+}
+
+.provider-config.active {
+  display: block;
+}
+
+/* Folder Display in Modal */
+.folder-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+}
+
+.folder-display svg {
+  color: #0078d4;
+  flex-shrink: 0;
+}
+
+.folder-display span {
+  flex: 1;
+  font-size: 14px;
+}
+
+.auth-required {
+  padding: 12px;
+  background: #fff3cd;
+  border-radius: 6px;
+  color: #856404;
+  font-size: 14px;
+}
+
+.auth-required p {
+  margin: 0;
+}
+
+/* Section Divider */
+.section-divider {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 20px 0;
+}
+
+/* Clear History Row */
+.clear-history-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.setting-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Danger Button */
+.btn.danger {
+  background: #d83b01;
+  color: white;
+}
+
+.btn.danger:hover {
+  background: #c23301;
+}
+
+/* Small Modal */
+.modal-small {
+  max-width: 400px;
+}
+
+.warning-text {
+  color: #d83b01;
+  font-weight: 500;
+  margin-top: 8px;
+}
