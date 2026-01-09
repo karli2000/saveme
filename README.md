@@ -188,6 +188,12 @@ saveme/
 └── README.md
 ```
 
+## Documentation
+
+- [FAQ](FAQ.md) - Frequently asked questions
+- [Privacy Policy](PRIVACY.md) - How your data is handled
+- [Terms of Service](TERMS.md) - Terms and conditions of use
+
 ## Privacy
 
 - **Local storage only** - Credentials and hashes stored in Chrome's secure local storage
