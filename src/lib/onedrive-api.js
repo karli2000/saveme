@@ -251,12 +251,13 @@ export async function refreshAccessToken() {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    console.error('SaveMe: Token refresh failed', {
-      error: error.error,
-      description: error.error_description,
-      timestamp: new Date().toISOString()
-    });
+    let error;
+    try {
+      error = await response.json();
+    } catch {
+      error = { error: 'unknown', error_description: `HTTP ${response.status}: ${response.statusText}` };
+    }
+    console.error(`SaveMe: Token refresh failed - ${error.error}: ${error.error_description || 'Unknown error'}`);
     // If refresh token is invalid, clear tokens and signal re-auth needed
     if (error.error === 'invalid_grant') {
       await clearTokens();
