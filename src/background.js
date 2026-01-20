@@ -19,6 +19,51 @@ const HASH_RETENTION_DAYS = 90;
 const HASH_CLEANUP_INTERVAL = 24 * 60 * 60 * 1000;
 const MAX_STORED_HASHES = 10000;
 
+// ==================== Service Worker Initialization ====================
+// This runs every time the service worker wakes up (not just on browser start)
+
+(async function initServiceWorker() {
+  console.log('SaveMe: Service worker initializing...');
+
+  // Ensure the refresh alarm exists
+  const existingAlarm = await chrome.alarms.get('refreshToken');
+  if (!existingAlarm) {
+    console.log('SaveMe: No refresh alarm found, creating one');
+    chrome.alarms.create('refreshToken', {
+      delayInMinutes: 5,
+      periodInMinutes: 60 * 3
+    });
+  }
+
+  // Check if we have tokens and if they're close to expiring
+  try {
+    const result = await chrome.storage.local.get('tokens');
+    const tokens = result.tokens;
+
+    if (tokens?.refreshToken) {
+      const now = Date.now();
+      const expiresAt = tokens.expiresAt || 0;
+      const timeUntilExpiry = expiresAt - now;
+      const thirtyMinutes = 30 * 60 * 1000;
+
+      console.log('SaveMe: Token status on wake', {
+        hasTokens: true,
+        expiresIn: Math.round(timeUntilExpiry / 1000 / 60) + ' minutes',
+        lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never'
+      });
+
+      // If token expires within 30 minutes, refresh it now
+      if (timeUntilExpiry < thirtyMinutes) {
+        console.log('SaveMe: Token expiring soon, refreshing proactively');
+        await refreshAccessToken();
+        console.log('SaveMe: Proactive refresh on wake completed');
+      }
+    }
+  } catch (error) {
+    console.warn('SaveMe: Init token check failed:', error.message);
+  }
+})();
+
 /**
  * Build context menu based on destination count
  */
@@ -95,31 +140,45 @@ chrome.runtime.onInstalled.addListener(async (details) => {
  * Refresh token on browser startup
  */
 chrome.runtime.onStartup.addListener(async () => {
+  console.log('SaveMe: Browser startup detected');
+
   // Rebuild context menu on startup
   await rebuildContextMenu();
 
   // Ensure the refresh alarm exists (in case it was cleared)
-  const existingAlarm = await chrome.alarms.get('refreshToken');
-  if (!existingAlarm) {
-    console.log('SaveMe: Recreating token refresh alarm on startup');
-    chrome.alarms.create('refreshToken', {
-      delayInMinutes: 5,
-      periodInMinutes: 60 * 3
-    });
-  }
+  await ensureRefreshAlarm();
 
-  // Small delay to let things initialize, then refresh token
-  setTimeout(() => proactiveTokenRefresh(), 10000);
+  // Create a one-time alarm for immediate refresh (more reliable than setTimeout in MV3)
+  chrome.alarms.create('refreshTokenNow', { delayInMinutes: 0.1 });
 });
 
 /**
  * Handle alarms for background tasks
  */
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'refreshToken') {
+  if (alarm.name === 'refreshToken' || alarm.name === 'refreshTokenNow') {
+    console.log(`SaveMe: Alarm fired - ${alarm.name}`);
     await proactiveTokenRefresh();
   }
 });
+
+/**
+ * Ensure the periodic refresh alarm exists
+ */
+async function ensureRefreshAlarm() {
+  const existingAlarm = await chrome.alarms.get('refreshToken');
+  if (!existingAlarm) {
+    console.log('SaveMe: Creating token refresh alarm');
+    chrome.alarms.create('refreshToken', {
+      delayInMinutes: 5,
+      periodInMinutes: 60 * 3
+    });
+  } else {
+    console.log('SaveMe: Token refresh alarm already exists', {
+      scheduledTime: new Date(existingAlarm.scheduledTime).toISOString()
+    });
+  }
+}
 
 /**
  * Listen for storage changes to rebuild menu
@@ -136,12 +195,30 @@ chrome.storage.onChanged.addListener((changes, area) => {
 async function proactiveTokenRefresh() {
   try {
     const tokens = await getTokens();
-    if (tokens?.refreshToken) {
-      await refreshAccessToken();
-      console.log('SaveMe: Token refreshed proactively');
+    if (!tokens?.refreshToken) {
+      console.log('SaveMe: No refresh token found, skipping proactive refresh');
+      return;
     }
+
+    const now = Date.now();
+    const expiresAt = tokens.expiresAt || 0;
+    const timeUntilExpiry = expiresAt - now;
+
+    console.log('SaveMe: Proactive token refresh starting', {
+      currentlyExpired: timeUntilExpiry < 0,
+      expiresIn: Math.round(timeUntilExpiry / 1000 / 60) + ' minutes',
+      lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never',
+      refreshCount: tokens.refreshCount || 0
+    });
+
+    await refreshAccessToken();
+    console.log('SaveMe: Proactive token refresh completed successfully');
   } catch (error) {
-    console.warn('SaveMe: Proactive token refresh failed:', error.message);
+    console.error('SaveMe: Proactive token refresh failed:', error.message);
+    // If it's a re-auth error, the tokens have already been cleared by refreshAccessToken
+    if (error.requiresReauth) {
+      console.log('SaveMe: Re-authentication required, tokens cleared');
+    }
   }
 }
 

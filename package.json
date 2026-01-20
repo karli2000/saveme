@@ -1,6 +1,6 @@
 {
   "name": "saveme",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "type": "module",
   "description": "A Chrome extension that lets you right-click any image on any website and save it to multiple destinations (OneDrive, local folder). The source URL (page URL) and image URL are embedded in the image metadata.",
   "scripts": {

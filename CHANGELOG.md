@@ -2,6 +2,20 @@
 
 All notable changes to SaveMe Chrome Extension.
 
+## [2.2.0] - 2026-01-20
+
+### Fixed
+
+- **Token refresh reliability**: Fixed issue where OneDrive tokens weren't being refreshed properly
+  - Added service worker initialization that checks token status on every wake-up
+  - Replaced unreliable `setTimeout` with Chrome Alarms API for startup refresh
+  - Tokens expiring within 30 minutes are now refreshed immediately on worker wake
+- **Error logging**: Fixed `[object Object]` appearing in token refresh error messages
+
+### Changed
+
+- **Improved logging**: Better diagnostic logging for token refresh with expiry times and refresh counts
+
 ## [2.1.0] - 2026-01-09
 
 ### Added
