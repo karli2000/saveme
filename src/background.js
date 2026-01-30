@@ -23,44 +23,62 @@ const MAX_STORED_HASHES = 10000;
 // This runs every time the service worker wakes up (not just on browser start)
 
 (async function initServiceWorker() {
-  console.log('SaveMe: Service worker initializing...');
+  const now = Date.now();
+  console.log('SaveMe: Service worker initializing...', {
+    timestamp: new Date(now).toISOString()
+  });
 
-  // Ensure the refresh alarm exists
+  // Ensure the refresh alarm exists - check and recreate if missing
   const existingAlarm = await chrome.alarms.get('refreshToken');
   if (!existingAlarm) {
-    console.log('SaveMe: No refresh alarm found, creating one');
+    console.log('SaveMe: No refresh alarm found, creating one (every 30 minutes)');
     chrome.alarms.create('refreshToken', {
-      delayInMinutes: 5,
-      periodInMinutes: 60 * 3
+      delayInMinutes: 1,
+      periodInMinutes: 30  // Refresh every 30 minutes instead of 3 hours
     });
+  } else {
+    const nextFire = new Date(existingAlarm.scheduledTime);
+    console.log('SaveMe: Refresh alarm exists, next fire:', nextFire.toISOString());
   }
 
-  // Check if we have tokens and if they're close to expiring
+  // Check if we have tokens and if they need refresh
   try {
     const result = await chrome.storage.local.get('tokens');
     const tokens = result.tokens;
 
     if (tokens?.refreshToken) {
-      const now = Date.now();
       const expiresAt = tokens.expiresAt || 0;
       const timeUntilExpiry = expiresAt - now;
-      const thirtyMinutes = 30 * 60 * 1000;
+      const lastRefreshAge = tokens.lastRefresh ? now - tokens.lastRefresh : Infinity;
+      const oneHour = 60 * 60 * 1000;
 
       console.log('SaveMe: Token status on wake', {
         hasTokens: true,
-        expiresIn: Math.round(timeUntilExpiry / 1000 / 60) + ' minutes',
-        lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never'
+        accessTokenExpiresIn: Math.round(timeUntilExpiry / 1000 / 60) + ' minutes',
+        accessTokenExpired: timeUntilExpiry < 0,
+        lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never',
+        lastRefreshAge: Math.round(lastRefreshAge / 1000 / 60) + ' minutes ago',
+        refreshCount: tokens.refreshCount || 0
       });
 
-      // If token expires within 30 minutes, refresh it now
-      if (timeUntilExpiry < thirtyMinutes) {
-        console.log('SaveMe: Token expiring soon, refreshing proactively');
+      // Refresh if:
+      // 1. Access token expires within 30 minutes, OR
+      // 2. Last refresh was more than 1 hour ago (keep refresh token active)
+      const needsRefresh = timeUntilExpiry < (30 * 60 * 1000) || lastRefreshAge > oneHour;
+
+      if (needsRefresh) {
+        const reason = timeUntilExpiry < (30 * 60 * 1000)
+          ? 'access token expiring soon'
+          : 'refresh token keepalive (>1 hour since last refresh)';
+        console.log(`SaveMe: Refreshing on wake - ${reason}`);
         await refreshAccessToken();
         console.log('SaveMe: Proactive refresh on wake completed');
       }
+    } else {
+      console.log('SaveMe: No tokens found, user needs to authenticate');
     }
   } catch (error) {
-    console.warn('SaveMe: Init token check failed:', error.message);
+    console.error('SaveMe: Init token check failed:', error.message);
   }
 })();
 
@@ -129,18 +147,19 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     chrome.runtime.openOptionsPage();
   }
 
-  // Set up periodic token refresh alarm (every 3 hours)
+  // Set up periodic token refresh alarm (every 30 minutes for reliability)
   chrome.alarms.create('refreshToken', {
-    delayInMinutes: 5,
-    periodInMinutes: 60 * 3
+    delayInMinutes: 1,
+    periodInMinutes: 30
   });
+  console.log('SaveMe: Token refresh alarm created (every 30 minutes)');
 });
 
 /**
  * Refresh token on browser startup
  */
 chrome.runtime.onStartup.addListener(async () => {
-  console.log('SaveMe: Browser startup detected');
+  console.log('SaveMe: Browser startup detected at', new Date().toISOString());
 
   // Rebuild context menu on startup
   await rebuildContextMenu();
@@ -148,8 +167,9 @@ chrome.runtime.onStartup.addListener(async () => {
   // Ensure the refresh alarm exists (in case it was cleared)
   await ensureRefreshAlarm();
 
-  // Create a one-time alarm for immediate refresh (more reliable than setTimeout in MV3)
-  chrome.alarms.create('refreshTokenNow', { delayInMinutes: 0.1 });
+  // Create a one-time alarm for immediate refresh (minimum 1 minute in Chrome)
+  chrome.alarms.create('refreshTokenNow', { delayInMinutes: 1 });
+  console.log('SaveMe: Scheduled immediate token refresh');
 });
 
 /**
@@ -168,15 +188,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 async function ensureRefreshAlarm() {
   const existingAlarm = await chrome.alarms.get('refreshToken');
   if (!existingAlarm) {
-    console.log('SaveMe: Creating token refresh alarm');
+    console.log('SaveMe: Creating token refresh alarm (every 30 minutes)');
     chrome.alarms.create('refreshToken', {
-      delayInMinutes: 5,
-      periodInMinutes: 60 * 3
+      delayInMinutes: 1,
+      periodInMinutes: 30
     });
   } else {
-    console.log('SaveMe: Token refresh alarm already exists', {
-      scheduledTime: new Date(existingAlarm.scheduledTime).toISOString()
-    });
+    // Check if alarm has old 3-hour period and recreate with 30-minute period
+    if (existingAlarm.periodInMinutes && existingAlarm.periodInMinutes > 60) {
+      console.log('SaveMe: Updating alarm from', existingAlarm.periodInMinutes, 'to 30 minutes');
+      await chrome.alarms.clear('refreshToken');
+      chrome.alarms.create('refreshToken', {
+        delayInMinutes: 1,
+        periodInMinutes: 30
+      });
+    } else {
+      console.log('SaveMe: Token refresh alarm already exists', {
+        scheduledTime: new Date(existingAlarm.scheduledTime).toISOString(),
+        periodInMinutes: existingAlarm.periodInMinutes
+      });
+    }
   }
 }
 
@@ -203,14 +234,19 @@ async function proactiveTokenRefresh() {
     const now = Date.now();
     const expiresAt = tokens.expiresAt || 0;
     const timeUntilExpiry = expiresAt - now;
+    const lastRefreshAge = tokens.lastRefresh ? now - tokens.lastRefresh : Infinity;
 
-    console.log('SaveMe: Proactive token refresh starting', {
+    console.log('SaveMe: Proactive token refresh check', {
       currentlyExpired: timeUntilExpiry < 0,
       expiresIn: Math.round(timeUntilExpiry / 1000 / 60) + ' minutes',
       lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never',
+      lastRefreshAge: Math.round(lastRefreshAge / 1000 / 60) + ' minutes ago',
       refreshCount: tokens.refreshCount || 0
     });
 
+    // Always refresh to keep the refresh token active
+    // Microsoft refresh tokens can expire if not used regularly
+    console.log('SaveMe: Performing token refresh...');
     await refreshAccessToken();
     console.log('SaveMe: Proactive token refresh completed successfully');
   } catch (error) {
@@ -218,6 +254,14 @@ async function proactiveTokenRefresh() {
     // If it's a re-auth error, the tokens have already been cleared by refreshAccessToken
     if (error.requiresReauth) {
       console.log('SaveMe: Re-authentication required, tokens cleared');
+      // Show notification to user
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'SaveMe: OneDrive Session Expired',
+        message: 'Please open SaveMe settings to reconnect to OneDrive.',
+        priority: 2
+      });
     }
   }
 }

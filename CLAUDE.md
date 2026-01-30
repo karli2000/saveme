@@ -150,8 +150,10 @@ Both the page URL (Source) and image URL (Image) are embedded:
 - **Token refresh**: Multiple layers ensure reliable token refresh:
   - Service worker initialization checks tokens on every wake-up
   - Tokens expiring within 30 minutes are refreshed immediately
-  - Chrome Alarms API runs refresh every 3 hours (survives worker termination)
+  - Chrome Alarms API runs refresh every 30 minutes (survives worker termination)
   - Browser startup triggers immediate refresh via alarm (not setTimeout)
+  - Refreshes if last refresh was >1 hour ago (keeps refresh token active)
+  - Includes `redirect_uri` in refresh requests for Microsoft compatibility
 - **Duplicate detection**: Three modes - global (block everywhere), per-destination (allow in different destinations), disabled
 - **Re-auth handling**: Pending save stored before opening auth page, retried after successful authentication
 - **Local folder saving**: Uses data URL conversion since `URL.createObjectURL` unavailable in service workers

@@ -229,13 +229,21 @@ export async function refreshAccessToken() {
     throw new Error('No refresh token available');
   }
 
+  const now = Date.now();
+  const hoursSinceLastRefresh = tokens.lastRefresh
+    ? Math.round((now - tokens.lastRefresh) / 1000 / 60 / 60 * 10) / 10
+    : 'unknown';
+
   console.log('SaveMe: Attempting token refresh...', {
     refreshTokenLength: tokens.refreshToken?.length,
-    lastRefresh: new Date(tokens.lastRefresh).toISOString(),
-    refreshCount: tokens.refreshCount
+    lastRefresh: tokens.lastRefresh ? new Date(tokens.lastRefresh).toISOString() : 'never',
+    hoursSinceLastRefresh,
+    refreshCount: tokens.refreshCount || 0,
+    originalAuth: tokens.originalAuth ? new Date(tokens.originalAuth).toISOString() : 'unknown'
   });
 
   const clientId = await getClientId();
+  const redirectUrl = getRedirectUrl();
 
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -246,6 +254,7 @@ export async function refreshAccessToken() {
       client_id: clientId,
       grant_type: 'refresh_token',
       refresh_token: tokens.refreshToken,
+      redirect_uri: redirectUrl,
       scope: SCOPES
     })
   });
@@ -257,9 +266,13 @@ export async function refreshAccessToken() {
     } catch {
       error = { error: 'unknown', error_description: `HTTP ${response.status}: ${response.statusText}` };
     }
-    console.error(`SaveMe: Token refresh failed - ${error.error}: ${error.error_description || 'Unknown error'}`);
+    console.error(`SaveMe: Token refresh failed - ${error.error}: ${error.error_description || 'Unknown error'}`, {
+      status: response.status,
+      hoursSinceLastRefresh,
+      refreshCount: tokens.refreshCount || 0
+    });
     // If refresh token is invalid, clear tokens and signal re-auth needed
-    if (error.error === 'invalid_grant') {
+    if (error.error === 'invalid_grant' || error.error === 'invalid_request') {
       await clearTokens();
       const authError = new Error('Session expired. Please reconnect to OneDrive.');
       authError.requiresReauth = true;
@@ -273,13 +286,17 @@ export async function refreshAccessToken() {
   console.log('SaveMe: Token refresh successful', {
     gotNewRefreshToken: !!newTokens.refresh_token,
     newRefreshTokenLength: newTokens.refresh_token?.length,
+    oldRefreshTokenLength: tokens.refreshToken?.length,
+    refreshTokenChanged: newTokens.refresh_token && newTokens.refresh_token !== tokens.refreshToken,
     accessTokenExpiresIn: newTokens.expires_in
   });
 
-  // Preserve old refresh token if new one not provided
+  // IMPORTANT: Microsoft may return a new refresh token - we MUST use it
   if (!newTokens.refresh_token) {
-    console.log('SaveMe: No new refresh token received, preserving existing');
+    console.warn('SaveMe: No new refresh token received, preserving existing (this may cause issues)');
     newTokens.refresh_token = tokens.refreshToken;
+  } else if (newTokens.refresh_token !== tokens.refreshToken) {
+    console.log('SaveMe: Received new refresh token from Microsoft - updating stored token');
   }
 
   await storeTokens(newTokens, true);
