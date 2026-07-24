@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SaveMe",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Right-click any image to save it to OneDrive, local folder, or other destinations",
   "permissions": [
     "contextMenus",
@@ -9,7 +9,8 @@
     "notifications",
     "identity",
     "alarms",
-    "downloads"
+    "downloads",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "<all_urls>"

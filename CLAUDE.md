@@ -32,9 +32,11 @@ npm run lint:fix    # Auto-fix issues
 ### Azure App Registration (OneDrive)
 
 The extension requires an Azure AD app registration with:
-- Redirect URI: `https://{extension-id}.chromiumapp.org/`
+- Redirect URI: `https://{extension-id}.chromiumapp.org/` registered under the **"Mobile and desktop applications"** platform (NOT "Web" or "Single-page application" — SPA refresh tokens are hard-capped at 24 hours by Microsoft, causing daily re-login)
 - API permissions: `Files.ReadWrite`, `User.Read`, `offline_access`
 - Client ID configured in `src/manifest.json` under `oauth2.client_id`
+
+Azure only allows native-platform token redemption when the request has no `Origin` header. Chrome sends `Origin: chrome-extension://...` on service worker fetches, so `background.js` installs a `declarativeNetRequest` dynamic rule that strips the `Origin` header on this extension's requests to the Microsoft token endpoint (see `ensureOriginStripRule()`).
 
 ## Architecture
 

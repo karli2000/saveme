@@ -220,9 +220,23 @@ export async function getTokens() {
 }
 
 /**
- * Refresh the access token using the refresh token
+ * Refresh the access token using the refresh token.
+ * Single-flight: concurrent callers (alarm, wake-up check, on-demand save)
+ * share one request. Microsoft rotates refresh tokens, so parallel refreshes
+ * could store a stale token and invalidate the session.
  */
-export async function refreshAccessToken() {
+let refreshInFlight = null;
+
+export function refreshAccessToken() {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefreshAccessToken().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefreshAccessToken() {
   const tokens = await getTokens();
   if (!tokens?.refreshToken) {
     console.error('SaveMe: No refresh token found in storage');

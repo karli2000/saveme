@@ -2,6 +2,19 @@
 
 All notable changes to SaveMe Chrome Extension.
 
+## [2.3.0] - 2026-07-24
+
+### Fixed
+
+- **24-hour session expiry root cause**: Azure AD hard-caps refresh tokens at 24 hours when the redirect URI is registered as a "Single-page application" (or "Web") platform — no amount of refreshing extends it. Fix requires re-registering the redirect URI under "Mobile and desktop applications" (see README Step 4), which issues 90-day sliding refresh tokens.
+  - Added `declarativeNetRequest` dynamic rule that strips the `Origin` header on this extension's requests to the Microsoft token endpoint. Azure rejects native-platform token redemption when an `Origin` header is present (`AADSTS9002326`), and Chrome always sends `Origin: chrome-extension://...` from service worker fetches. Rule is scoped to this extension's own requests only — Microsoft logins on regular websites are unaffected.
+  - New permission: `declarativeNetRequestWithHostAccess`
+- **Concurrent refresh race**: `refreshAccessToken()` is now single-flight. Previously the 30-minute alarm, service worker wake-up check, and an on-demand save could refresh in parallel; with Microsoft's refresh token rotation this could store a stale token and invalidate the session.
+
+### Changed
+
+- README/CLAUDE.md: Azure setup now instructs "Mobile and desktop applications" platform instead of "Web", with migration note for existing registrations (users must reconnect OneDrive once after moving the redirect URI).
+
 ## [2.2.0] - 2026-01-30
 
 ### Fixed

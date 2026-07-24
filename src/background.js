@@ -22,11 +22,50 @@ const MAX_STORED_HASHES = 10000;
 // ==================== Service Worker Initialization ====================
 // This runs every time the service worker wakes up (not just on browser start)
 
+const ORIGIN_STRIP_RULE_ID = 1;
+
+/**
+ * Strip the Origin header on our own requests to the Microsoft token endpoint.
+ * Chrome sends `Origin: chrome-extension://...` on fetch() from the service
+ * worker, which makes Azure AD treat token redemption as cross-origin and
+ * require the "Single-page application" platform - whose refresh tokens are
+ * hard-capped at 24 hours. Without the header, the app can be registered as
+ * "Mobile and desktop applications" and gets long-lived refresh tokens.
+ * Scoped via initiatorDomains to this extension's requests only, so Microsoft
+ * logins on regular websites are unaffected.
+ */
+async function ensureOriginStripRule() {
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [ORIGIN_STRIP_RULE_ID],
+      addRules: [{
+        id: ORIGIN_STRIP_RULE_ID,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [{ header: 'Origin', operation: 'remove' }]
+        },
+        condition: {
+          urlFilter: '||login.microsoftonline.com/*/oauth2/v2.0/token',
+          initiatorDomains: [chrome.runtime.id],
+          resourceTypes: ['xmlhttprequest']
+        }
+      }]
+    });
+    console.log('SaveMe: Origin-strip rule for token endpoint installed');
+  } catch (error) {
+    console.error('SaveMe: Failed to install Origin-strip rule:', error.message);
+  }
+}
+
 (async function initServiceWorker() {
   const now = Date.now();
   console.log('SaveMe: Service worker initializing...', {
     timestamp: new Date(now).toISOString()
   });
+
+  // Make sure the Origin header is stripped before any token request runs
+  await ensureOriginStripRule();
 
   // Ensure the refresh alarm exists - check and recreate if missing
   const existingAlarm = await chrome.alarms.get('refreshToken');

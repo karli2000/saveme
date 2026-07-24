@@ -62,12 +62,21 @@ This extension is available in the [Chrome Store](https://chromewebstore.google.
 ### Step 4: Add Redirect URI to Azure
 
 1. Back in Azure → your app → **Authentication**
-2. Click **Add a platform** → **Web**
-3. Add Redirect URI:
+2. Click **Add a platform** → **Mobile and desktop applications**
+3. Add a custom Redirect URI:
    ```
    https://YOUR_EXTENSION_ID.chromiumapp.org/
    ```
 4. Click **Configure**
+
+> **Important:** Do NOT register the redirect URI under the **Web** or
+> **Single-page application (SPA)** platform. SPA refresh tokens are
+> hard-limited to 24 hours by Microsoft, which forces daily re-login.
+> The "Mobile and desktop applications" platform issues long-lived
+> refresh tokens (90-day sliding window, extended on every refresh).
+> If the URI is already registered under Web/SPA, remove it there and
+> re-add it under "Mobile and desktop applications", then reconnect
+> OneDrive once in the extension settings.
 
 ### Step 5: Configure Extension
 
