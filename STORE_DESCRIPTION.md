@@ -6,6 +6,16 @@ SaveMe requires the downloads permission to save images to the user's local Down
 
 ---
 
+## declarativeNetRequestWithHostAccess Permission Justification
+
+SaveMe uses this permission for a single, narrowly scoped purpose: it installs one dynamic rule that removes the `Origin` header on the extension's own OAuth token requests to `login.microsoftonline.com/*/oauth2/v2.0/token`. Chrome automatically attaches an `Origin: chrome-extension://...` header to fetch requests from the extension's service worker. Microsoft's identity platform rejects OAuth token redemption for native/public client applications when an Origin header is present (error AADSTS9002326), and the only alternative (registering as a Single-Page Application) limits refresh tokens to 24 hours, forcing users to re-authenticate to OneDrive every day. The rule is restricted by `initiatorDomains` to requests originating from this extension only — it never modifies, blocks, or observes requests made by web pages or other extensions, and it affects no domain other than Microsoft's OAuth token endpoint. No browsing data is read or collected through this permission.
+
+### Short version (for character-limited form fields)
+
+Used to remove the Origin header on this extension's own OAuth token requests to login.microsoftonline.com. Chrome adds `Origin: chrome-extension://...` to service worker fetches, which Microsoft rejects for native OAuth clients (AADSTS9002326); without this, OneDrive sessions expire every 24 hours. The single dynamic rule is scoped via initiatorDomains to the extension's own requests and only matches Microsoft's token endpoint. It never touches web page traffic and collects no data.
+
+---
+
 ## Short Description (132 characters max)
 
 Save images to OneDrive or local folder with one click. Embeds source URL in metadata. Duplicate detection. No tracking.
